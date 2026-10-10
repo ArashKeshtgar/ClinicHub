@@ -1,0 +1,6 @@
+# Profiles of the legacy database stay on this machine: they describe a client's
+# production system. Only module-level, aggregate findings go in docs/.
+docs/private/
+*.bak
+*.mdf
+*.ldf
