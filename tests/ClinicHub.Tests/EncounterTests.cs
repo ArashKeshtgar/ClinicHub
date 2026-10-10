@@ -8,7 +8,7 @@ namespace ClinicHub.Tests;
 
 public class EncounterTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
-    private static async Task<JsonNode> Json(HttpResponseMessage res)
+    internal static async Task<JsonNode> Json(HttpResponseMessage res)
     {
         var body = await res.Content.ReadAsStringAsync();
         Assert.True(res.IsSuccessStatusCode, $"{(int)res.StatusCode}: {body}");
@@ -19,7 +19,9 @@ public class EncounterTests(ApiFactory factory) : IClassFixture<ApiFactory>
     /// A walk-in checked in and roomed through the front desk, then given to Dr. Patel (walk-ins go to
     /// whoever is on today, which on a weekend is not her, and only the treating provider signs).
     /// </summary>
-    private async Task<int> RoomedVisitForDrPatel(Func<ClinicHubDbContext, Task<Patient>> pickPatient)
+    private Task<int> RoomedVisitForDrPatel(Func<ClinicHubDbContext, Task<Patient>> pickPatient) => RoomedVisitForDrPatel(factory, pickPatient);
+
+    internal static async Task<int> RoomedVisitForDrPatel(ApiFactory factory, Func<ClinicHubDbContext, Task<Patient>> pickPatient)
     {
         var desk = await factory.SignInAsync("frontdesk");
         await using var db = new TestDatabaseReader(factory).Context();
@@ -40,7 +42,7 @@ public class EncounterTests(ApiFactory factory) : IClassFixture<ApiFactory>
         return encounter.Id;
     }
 
-    private static Task<Patient> OhipPatient(ClinicHubDbContext db) =>
+    internal static Task<Patient> OhipPatient(ClinicHubDbContext db) =>
         db.Patients.OrderBy(p => p.Id).FirstAsync(p => p.HealthCardNumber != null && p.HealthCardExpiry > DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30));
 
     private static Task<Patient> UninsuredPatient(ClinicHubDbContext db) =>

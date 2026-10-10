@@ -25,6 +25,9 @@ public class Patient
     /// <summary>Province whose plan covers the patient: ON for OHIP, another code for reciprocal billing.</summary>
     [MaxLength(2)] public string? CoverageProvince { get; set; }
 
+    /// <summary>Health number issued by the covering province, for reciprocal billing (RMB).</summary>
+    [MaxLength(12)] public string? OutOfProvinceNumber { get; set; }
+
     [MaxLength(20)] public string? Phone { get; set; }
     [MaxLength(120)] public string? Email { get; set; }
     [MaxLength(200)] public string? AddressLine1 { get; set; }

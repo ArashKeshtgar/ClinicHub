@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router'
 import { api, ApiError, can, type Me, type Settings } from './api'
+import Billing from './pages/Billing'
 import EncounterPage from './pages/EncounterPage'
 import FrontDesk from './pages/FrontDesk'
 import Visits from './pages/Visits'
@@ -40,6 +41,7 @@ export default function App() {
         <nav>
           {can(me, 'schedule.view') && <NavLink to="/frontdesk">Front desk</NavLink>}
           {can(me, 'encounters.view') && <NavLink to="/visits">Visits</NavLink>}
+          {can(me, 'billing.view') && <NavLink to="/billing">Billing</NavLink>}
         </nav>
         <div className="who">
           <span><span className="name">{me.displayName}</span> <span className="muted">· {me.roles.join(', ')}</span></span>
@@ -50,10 +52,11 @@ export default function App() {
       <main className="page">
         <Routes>
           {/* Clinicians who sign start on their own worklist; everyone else on the front desk board. */}
-          <Route path="/" element={<Navigate to={can(me, 'encounters.sign') && me.providerId ? '/visits' : '/frontdesk'} replace />} />
+          <Route path="/" element={<Navigate to={can(me, 'encounters.sign') && me.providerId ? '/visits' : can(me, 'billing.manage') && !can(me, 'schedule.manage') ? '/billing' : '/frontdesk'} replace />} />
           <Route path="/frontdesk" element={<FrontDesk />} />
           <Route path="/visits" element={<Visits />} />
           <Route path="/visits/:id" element={<EncounterPage />} />
+          <Route path="/billing" element={<Billing />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

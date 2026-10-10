@@ -32,7 +32,87 @@ public static class DemoSeeder
         for (var day = today; day <= today.AddDays(7); day = day.AddDays(1))
             await SeedDay(db, day, nowUtc);
         await SeedEncounters(db, today);
+        await SeedBillingDemo(db, hasher, today, nowUtc);
     }
+
+    /// <summary>
+    /// Gives every provider a sign-in (not offered as a one-click demo user) so their visits can be signed,
+    /// gives reciprocal-billing patients their home province's number, and signs about two thirds of
+    /// today's finished visits with a short note, so the billing clerk starts with claims to send.
+    /// </summary>
+    private static async Task SeedBillingDemo(ClinicHubDbContext db, IPasswordHasher<User> hasher, DateOnly today, DateTime nowUtc)
+    {
+        var physicianRole = await db.Roles.SingleAsync(r => r.Name == SystemRoles.Physician);
+        foreach (var p in await db.Providers.Where(p => p.UserId == null && p.IsActive).ToListAsync())
+        {
+            var user = new User
+            {
+                UserName = $"{(p.Kind == ProviderKinds.NursePractitioner ? "np" : "dr")}.{p.LastName.ToLowerInvariant()}", DisplayName = p.DisplayName,
+                CreatedUtc = nowUtc, Roles = [new UserRole { Role = physicianRole }],
+            };
+            user.PasswordHash = hasher.HashPassword(user, RandomNumberGenerator.GetHexString(32));
+            p.User = user;
+        }
+        var rng = new Random(20261011);
+        foreach (var p in await db.Patients.Where(p => p.HealthCardNumber == null && p.CoverageProvince != null && p.CoverageProvince != "ON" && p.OutOfProvinceNumber == null).ToListAsync())
+            p.OutOfProvinceNumber = string.Concat(Enumerable.Range(0, 9).Select(_ => rng.Next(0, 10)));
+        await db.SaveChangesAsync();
+
+        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(today.ToDateTime(TimeOnly.MinValue), Toronto);
+        var finished = await db.Encounters.Include(e => e.Patient).Include(e => e.Provider).Include(e => e.Appointment!).ThenInclude(a => a.AppointmentType)
+            .Include(e => e.Diagnoses).Include(e => e.Services).ThenInclude(s => s.UninsuredService)
+            .Where(e => e.CheckInUtc >= dayStartUtc && e.CheckInUtc < dayStartUtc.AddDays(1) && e.Status == EncounterStatus.Open
+                && e.Note == null && e.Appointment!.Status == AppointmentStatus.Completed)
+            .ToListAsync();
+        var fees = await db.FeeCodes.ToDictionaryAsync(f => f.ServiceCode, f => f.Fee);
+        var uninsured = await db.UninsuredServices.ToDictionaryAsync(u => u.Code);
+        foreach (var e in finished)
+        {
+            // About a third stay unsigned: the provider's end-of-day backlog.
+            // Walk-ins by their reason; booked follow-ups are blood pressure checks. Other visit types are left for the provider.
+            var key = e.ReasonForVisit ?? (e.Appointment!.AppointmentType.Name == "Follow-up" ? "" : null);
+            if (new Random(e.Id).NextDouble() < 0.35 || key is null || !VisitTemplates.TryGetValue(key, out var t))
+                continue;
+            var serviceDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(e.CheckInUtc, Toronto));
+            e.Note = new ClinicalNote { Subjective = t.Subjective, Objective = t.Objective, Assessment = t.Assessment, Plan = t.Plan,
+                AuthorUserId = e.Provider.UserId!.Value, UpdatedUtc = e.EndedUtc ?? nowUtc };
+            e.Diagnoses.Add(new EncounterDiagnosis { DiagnosticCodeCode = t.Dx, IsPrimary = true });
+            if (e.PaymentProgram == PaymentPrograms.Uninsured)
+                e.Services.Add(new EncounterService { UninsuredService = uninsured["VISIT"], UninsuredServiceId = uninsured["VISIT"].Id, Fee = uninsured["VISIT"].Price, ServiceDate = serviceDate });
+            else
+                e.Services.Add(new EncounterService { FeeCodeServiceCode = t.Fee, Fee = fees[t.Fee], ServiceDate = serviceDate });
+            if (t.AlsoNote)
+                e.Services.Add(new EncounterService { UninsuredService = uninsured["NOTE"], UninsuredServiceId = uninsured["NOTE"].Id, Fee = uninsured["NOTE"].Price, ServiceDate = serviceDate });
+            EncounterSigning.Sign(db, e, e.Provider.UserId!.Value, (e.EndedUtc ?? nowUtc).AddMinutes(5));
+        }
+        await db.SaveChangesAsync();
+    }
+
+    private record VisitTemplate(string Dx, string Fee, string Subjective, string Objective, string Assessment, string Plan, bool AlsoNote = false);
+
+    private static readonly Dictionary<string, VisitTemplate> VisitTemplates = new()
+    {
+        ["Sore throat"] = new("034", "A007A", "Sore throat 3 days, fever, no cough.", "T 38.2. Tonsillar exudate, tender anterior nodes.",
+            "Streptococcal pharyngitis (Centor 4).", "Rapid strep positive. Penicillin V 600 mg BID x 10 days. Return if unable to swallow."),
+        ["Cough and fever"] = new("466", "A007A", "Productive cough 6 days, low-grade fever.", "Scattered wheeze, no focal crackles. SpO2 97%.",
+            "Acute bronchitis.", "Supportive care, fluids. Return if short of breath or fever past 3 more days."),
+        ["Ear pain"] = new("382", "A007A", "Left ear pain 2 days after a cold.", "Left TM bulging and red.", "Acute otitis media, left.",
+            "Amoxicillin 500 mg TID x 7 days. Analgesia."),
+        ["Rash"] = new("692", "A001A", "Itchy rash on forearms 1 week.", "Erythematous scaly patches, no vesicles.", "Contact dermatitis.",
+            "Avoid trigger. Hydrocortisone 1% cream BID x 2 weeks."),
+        ["Back pain"] = new("724", "A007A", "Low back pain after lifting, 4 days. No numbness, no bladder symptoms.",
+            "Paraspinal tenderness, SLR negative, neuro intact.", "Mechanical low back pain, no red flags.", "Stay active, NSAID x 1 week, physiotherapy if not improving."),
+        ["Prescription renewal"] = new("401", "A001A", "Here for antihypertensive renewal. No side effects.", "BP 132/84.",
+            "Hypertension, controlled.", "Renew ramipril 5 mg daily x 3 months. Bloodwork before next visit."),
+        ["Sick note"] = new("460", "A001A", "Cold symptoms 2 days, missed work.", "Mild pharyngeal erythema, chest clear.", "Viral URI.",
+            "Supportive care. Note for 2 days off work given.", AlsoNote: true),
+        ["Urinary symptoms"] = new("599", "A007A", "Dysuria and frequency 2 days. No fever or flank pain.", "Afebrile, no CVA tenderness. Dipstick nitrite positive.",
+            "Uncomplicated cystitis.", "Nitrofurantoin 100 mg BID x 5 days. Urine culture sent."),
+        ["Headache"] = new("784", "A007A", "Recurrent frontal headaches, worse with screen time.", "Neuro exam normal, BP normal.",
+            "Tension-type headache.", "Sleep and screen hygiene, acetaminophen as needed, headache diary. Follow up 4 weeks."),
+        [""] = new("401", "A007A", "Follow-up of blood pressure. Home readings 130s/80s.", "BP 134/82, HR 72.",
+            "Hypertension, at target.", "Continue current medication. Repeat lipids and A1C. Follow up 3 months."),
+    };
 
     /// <summary>
     /// Today's patients who have already arrived get the encounter check-in would have opened, and those

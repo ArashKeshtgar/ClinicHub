@@ -154,3 +154,58 @@ export function localDateTime(iso: string) {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Toronto',
   })
 }
+
+// --- OHIP billing ---
+
+export type ClaimStatus = 'Draft' | 'Ready' | 'Submitted' | 'Paid' | 'PartiallyPaid' | 'Rejected'
+export type Kpi = { count: number; amount: number }
+export type BillingOverview = {
+  ready: Kpi; unbatched: Kpi; submitted: Kpi; paidLast30Days: Kpi; rejected: Kpi; partiallyPaid: Kpi; invoicesOwing: Kpi
+  providers: ProviderBrief[]; explanatoryCodes: Record<string, string>
+}
+export type ClaimRow = {
+  id: number; accountingNumber: string; status: ClaimStatus; paymentProgram: string; patientId: number; patient: string; mrn: string
+  providerId: number; provider: string; serviceDate: string; services: string; amountSubmitted: number; amountPaid: number
+  batchFile?: string; encounterId: number; explanatoryCodes: string[]
+}
+export type ClaimDetail = {
+  claim: ClaimRow; healthCard?: string; province?: string
+  items: { serviceCode: string; description?: string; serviceDate: string; units: number; diagnosticCode?: string; feeSubmitted: number; feePaid?: number; explanatoryCode?: string; explanation?: string }[]
+}
+export type BatchRow = {
+  id: number; providerId: number; provider: string; billingNumber?: string; batchNumber: number; fileName: string
+  status: 'Created' | 'Submitted' | 'Accepted' | 'Rejected'; claimCount: number; total: number; createdUtc: string; submittedUtc?: string
+}
+export type RemittanceRow = { id: number; fileName: string; paymentDate: string; totalPaid: number; items: number; exceptions: number; unmatched: number; simulated: boolean; importedUtc: string }
+export type RemittanceDetail = {
+  remittance: RemittanceRow; messages: string[]
+  providers: { providerId: number; provider: string; billingNumber?: string; claims: number; submitted: number; paid: number; overheadPercent: number; overhead: number; net: number }[]
+  exceptions: { accountingNumber: string; claimId?: number; patient?: string; serviceCode: string; serviceDate: string; submitted: number; paid: number; explanatoryCode?: string; explanation: string }[]
+}
+
+export const billing = {
+  overview: () => request<BillingOverview>('GET', '/api/billing/overview'),
+  claims: (status?: string, providerId?: number) => {
+    const q = new URLSearchParams()
+    if (status) q.set('status', status)
+    if (providerId) q.set('providerId', String(providerId))
+    return request<ClaimRow[]>('GET', `/api/billing/claims?${q}`)
+  },
+  claim: (id: number) => request<ClaimDetail>('GET', `/api/billing/claims/${id}`),
+  resubmit: (id: number) => request<void>('POST', `/api/billing/claims/${id}/resubmit`),
+  batches: () => request<BatchRow[]>('GET', '/api/billing/batches'),
+  createBatches: () => request<BatchRow[]>('POST', '/api/billing/batches'),
+  submitBatch: (id: number) => request<BatchRow>('POST', `/api/billing/batches/${id}/submit`),
+  batchFileUrl: (id: number) => `/api/billing/batches/${id}/file`,
+  remittances: () => request<RemittanceRow[]>('GET', '/api/billing/remittances'),
+  remittance: (id: number) => request<RemittanceDetail>('GET', `/api/billing/remittances/${id}`),
+  simulateRemittance: () => request<RemittanceDetail>('POST', '/api/billing/remittances/simulate'),
+  importRemittance: (fileName: string, content: string) => request<RemittanceDetail>('POST', '/api/billing/remittances', { fileName, content }),
+  remittanceFileUrl: (id: number) => `/api/billing/remittances/${id}/file`,
+}
+
+export async function fetchText(url: string) {
+  const res = await fetch(url, { credentials: 'same-origin' })
+  if (!res.ok) throw new ApiError(res.status, `Could not load the file (${res.status}).`)
+  return res.text()
+}

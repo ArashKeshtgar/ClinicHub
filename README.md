@@ -39,7 +39,10 @@ patient data leaves the offline copy.
       values flagged, a SOAP note saved as you type, OHIP diagnostic and fee codes, signing by the treating
       provider only. Signing locks the note (corrections become addenda), creates the OHIP claim ready for
       the next batch, and invoices anything OHIP doesn't pay for; uninsured visits bill the private rate
-- [ ] OHIP claims: MC EDT batch file, simulated remittance advice, reconciliation
+- [x] OHIP billing: one MC EDT-shaped claims file per billing number (reciprocal claims included),
+      simulated submission and remittance advice, import of received remittance files, line-by-line
+      reconciliation with explanatory codes, provider payments net of clinic overhead, resubmission of
+      refused claims — [docs/ohip-billing.md](docs/ohip-billing.md)
 - [ ] Orders to LabFlow and ClinicReport over FHIR, results inbox
 - [ ] Master patient index: duplicate detection and merge; PHIPA consent directives
 - [ ] Two-factor sign-in and user administration (ported from ClinicReport)
@@ -68,8 +71,9 @@ Development runs the demo clinic: the sign-in page offers one-click staff roles.
 ## Notes on Ontario specifics
 
 - Health card numbers are checked with the Luhn check digit; version codes are up to two letters.
-- Health Card Validation (HCV) and OHIP claim submission require Ministry onboarding, so ClinicHub
-  simulates them. Simulator response codes are its own, not the Ministry's.
+- Health Card Validation (HCV), OHIP claim submission and the remittance advice require Ministry
+  onboarding, so ClinicHub simulates them. Simulator response and explanatory codes are its own, not the
+  Ministry's, and the claim files have not been certified against the Technical Specifications.
 - The seeded OHIP fee and diagnostic codes are a small **illustrative** subset with approximate fees;
   a real installation imports the current Schedule of Benefits.
 - Reciprocal medical billing covers insured residents of other provinces and territories except Quebec.

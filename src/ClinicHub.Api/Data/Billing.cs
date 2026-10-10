@@ -96,6 +96,10 @@ public class RemittanceAdvice
     [MaxLength(4)] public string? GroupNumber { get; set; }
     public DateOnly PaymentDate { get; set; }
     [MaxLength(40)] public string FileName { get; set; } = "";
+
+    /// <summary>The file as received, kept so a reconciliation can always be re-checked against it.</summary>
+    public string FileContent { get; set; } = "";
+    public bool Simulated { get; set; }
     public decimal TotalPaid { get; set; }
     public DateTime ImportedUtc { get; set; }
     public List<RemittanceItem> Items { get; set; } = [];

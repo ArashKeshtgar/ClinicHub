@@ -1166,6 +1166,10 @@ namespace ClinicHub.Api.Data.Migrations
                         .HasMaxLength(12)
                         .HasColumnType("nvarchar(12)");
 
+                    b.Property<string>("OutOfProvinceNumber")
+                        .HasMaxLength(12)
+                        .HasColumnType("nvarchar(12)");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
@@ -1523,6 +1527,11 @@ namespace ClinicHub.Api.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("FileContent")
+                        .IsRequired()
+                        .HasMaxLength(-1)
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(40)
@@ -1541,6 +1550,9 @@ namespace ClinicHub.Api.Data.Migrations
 
                     b.Property<DateOnly>("PaymentDate")
                         .HasColumnType("date");
+
+                    b.Property<bool>("Simulated")
+                        .HasColumnType("bit");
 
                     b.Property<decimal>("TotalPaid")
                         .HasPrecision(10, 2)

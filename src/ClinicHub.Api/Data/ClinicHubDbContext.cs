@@ -326,7 +326,11 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
             e.Property(x => x.FileContent).HasMaxLength(-1);
             e.HasIndex(x => new { x.ProviderId, x.BatchNumber }).IsUnique();
         });
-        b.Entity<RemittanceAdvice>(e => e.ToTable("RemittanceAdvice", "billing"));
+        b.Entity<RemittanceAdvice>(e =>
+        {
+            e.ToTable("RemittanceAdvice", "billing");
+            e.Property(x => x.FileContent).HasMaxLength(-1);
+        });
         b.Entity<RemittanceItem>(e =>
         {
             e.ToTable("RemittanceItem", "billing");

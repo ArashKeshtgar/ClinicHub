@@ -1,7 +1,7 @@
-using System.Globalization;
 using System.Security.Claims;
 using ClinicHub.Api.Auth;
 using ClinicHub.Api.Data;
+using ClinicHub.Api.Domain;
 using Microsoft.EntityFrameworkCore;
 using static ClinicHub.Api.Endpoints.FrontDeskEndpoints;
 
@@ -189,7 +189,7 @@ public static class EncounterEndpoints
 
         api.MapPost("/{id:int}/sign", async (int id, ClaimsPrincipal user, ClinicHubDbContext db, TimeProvider clock, HttpContext http) =>
         {
-            var e = await db.Encounters.Include(x => x.Patient).Include(x => x.Note).Include(x => x.Vitals)
+            var e = await db.Encounters.Include(x => x.Patient).Include(x => x.Provider).Include(x => x.Note).Include(x => x.Vitals)
                 .Include(x => x.Diagnoses).Include(x => x.Services).ThenInclude(s => s.UninsuredService)
                 .SingleOrDefaultAsync(x => x.Id == id);
             if (Locked(e) is { } locked)
@@ -201,44 +201,9 @@ public static class EncounterEndpoints
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["sign"] = missing });
 
             var now = clock.GetUtcNow().UtcDateTime;
-            e.Status = EncounterStatus.Signed;
-            e.SignedUtc = now;
-            e.SignedByUserId = user.RequiredUserId();
-            e.EndedUtc ??= now;
+            EncounterSigning.Sign(db, e, user.RequiredUserId(), now);
 
-            var primary = e.Diagnoses.Single(d => d.IsPrimary).DiagnosticCodeCode;
-            var insured = e.Services.Where(s => s.FeeCodeServiceCode is not null).ToList();
-            if (insured.Count > 0 && e.PaymentProgram != PaymentPrograms.Uninsured)
-                db.Claims.Add(new Data.Claim
-                {
-                    EncounterId = e.Id, PatientId = e.PatientId, ProviderId = e.ProviderId, PaymentProgram = e.PaymentProgram,
-                    HealthCardNumber = e.Patient.HealthCardNumber, HealthCardVersion = e.Patient.HealthCardVersion,
-                    Province = e.PaymentProgram == PaymentPrograms.Rmb ? e.Patient.CoverageProvince : "ON",
-                    // One claim per encounter and program, so the encounter number is unique and readable on the remittance.
-                    AccountingNumber = e.Id.ToString("D8", CultureInfo.InvariantCulture),
-                    Status = ClaimStatus.Ready, AmountSubmitted = insured.Sum(s => s.Fee), CreatedUtc = now,
-                    Items = insured.Select(s => new ClaimItem { ServiceCode = s.FeeCodeServiceCode!, ServiceDate = s.ServiceDate, Units = s.Units,
-                        DiagnosticCode = primary, FeeSubmitted = s.Fee }).ToList(),
-                });
-
-            var privatelyPaid = e.Services.Where(s => s.UninsuredService is not null).ToList();
-            if (privatelyPaid.Count > 0)
-            {
-                var lines = privatelyPaid.Select(s => new InvoiceLine
-                {
-                    UninsuredServiceId = s.UninsuredServiceId, Description = s.UninsuredService!.Name, Quantity = s.Units,
-                    UnitPrice = s.UninsuredService.Price, TaxRatePercent = s.UninsuredService.TaxRatePercent, LineTotal = s.Fee,
-                }).ToList();
-                var subtotal = lines.Sum(l => l.LineTotal);
-                var tax = Math.Round(lines.Sum(l => l.LineTotal * l.TaxRatePercent / 100m), 2, MidpointRounding.AwayFromZero);
-                db.Invoices.Add(new Invoice
-                {
-                    Number = $"INV-{e.Id:D6}", PatientId = e.PatientId, EncounterId = e.Id, Status = InvoiceStatus.Issued, IssuedUtc = now,
-                    Subtotal = subtotal, Tax = tax, Total = subtotal + tax, Balance = subtotal + tax, CreatedUtc = now, Lines = lines,
-                });
-            }
-
-            db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = e.SignedByUserId.Value, PatientId = e.PatientId,
+            db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = e.SignedByUserId!.Value, PatientId = e.PatientId,
                 Action = AccessActions.Edit, Context = $"Signed encounter {id}", IpAddress = AuthEndpoints.Ip(http) });
             try
             {

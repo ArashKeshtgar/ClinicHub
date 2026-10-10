@@ -56,6 +56,7 @@ app.MapGet("/api/settings", (IOptions<DemoOptions> demo) => new { Demo = demo.Va
 app.MapAuthEndpoints();
 app.MapFrontDeskEndpoints();
 app.MapEncounterEndpoints();
+app.MapBillingEndpoints();
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();
