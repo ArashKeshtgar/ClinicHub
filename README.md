@@ -30,11 +30,16 @@ patient data leaves the offline copy.
 - [x] Mapping study: [docs/totalsystem-to-ontario.md](docs/totalsystem-to-ontario.md)
 - [x] Database schema: 40 tables in 8 SQL schemas, every relationship a foreign key, CHECK constraints for
       health card format, visit states, billing rules — [docs/schema.md](docs/schema.md)
-- [x] Sign-in with roles and permissions (front desk, nurse, physician, billing clerk, privacy officer, admin)
+- [x] One sign-in for every clinic, **one database per clinic**: a catalog of clinics, accounts and per-clinic
+      roles; the clinic is chosen after signing in and can be switched —
+      [docs/architecture.md](docs/architecture.md)
+- [x] Account security brought over from ClinicReport: temporary passwords, two-factor (authenticator app),
+      lockout, sign out everywhere, people and per-clinic roles, security log and PHIPA access log pages;
+      platform administrators open new clinics with their own database
 - [x] Front desk: day board, walk-in queue, check-in with simulated health card validation, rooming,
       patient flow with wait times, PHIPA access log on check-in
-- [x] Synthetic demo clinic: 5 providers, 400 patients, a rolling week of appointments following the
-      legacy system's arrival curve
+- [x] Two synthetic demo clinics (Harbourview: 5 providers, 400 patients; Lakeshore: 3 providers, 250 patients),
+      a physician working at both, a rolling week of appointments following the legacy system's arrival curve
 - [x] Visits: the clinician's worklist (ready, waiting, to sign, unsigned backlog), vitals with abnormal
       values flagged, a SOAP note saved as you type, OHIP diagnostic and fee codes, signing by the treating
       provider only. Signing locks the note (corrections become addenda), creates the OHIP claim ready for
@@ -45,16 +50,16 @@ patient data leaves the offline copy.
       refused claims — [docs/ohip-billing.md](docs/ohip-billing.md)
 - [ ] Orders to LabFlow and ClinicReport over FHIR, results inbox
 - [ ] Master patient index: duplicate detection and merge; PHIPA consent directives
-- [ ] Two-factor sign-in and user administration (ported from ClinicReport)
+- [ ] ClinicHub as the OpenID Connect sign-in for ClinicReport (connected mode) and LabFlow
 - [ ] Clinic operations dashboard; Docker image and public demo
 
 ## Run it
 
 Requirements: .NET 10 SDK, Node 20+, a SQL Server you can reach with Windows authentication (or set
-`ConnectionStrings__ClinicHub`).
+`ConnectionStrings__Catalog` and `ConnectionStrings__ClinicServer`).
 
 ```bash
-dotnet run --project src/ClinicHub.Api        # API on http://localhost:5300; creates and seeds the ClinicHub database
+dotnet run --project src/ClinicHub.Api        # API on http://localhost:5300; creates the catalog and one database per demo clinic
 ```
 
 ```bash
@@ -63,10 +68,11 @@ npm --prefix web run dev                       # UI on http://localhost:5301
 ```
 
 ```bash
-dotnet test                                    # creates and drops a throw-away database per test class
+dotnet test                                    # creates and drops throw-away catalog and clinic databases per test class
 ```
 
-Development runs the demo clinic: the sign-in page offers one-click staff roles.
+Development runs the demo clinics: the sign-in page offers one-click staff roles. Dr. Patel works at both clinics and
+chooses one after signing in; the administrator can open a new clinic from **Clinics**.
 
 ## Notes on Ontario specifics
 

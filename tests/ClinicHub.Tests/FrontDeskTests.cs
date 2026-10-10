@@ -3,28 +3,41 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace ClinicHub.Tests;
 
-/// <summary>The API over a fresh demo database.</summary>
+/// <summary>The API over a fresh demo platform: its own catalog and its own database per demo clinic, dropped afterwards.</summary>
 public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private readonly TestDatabase _db = new();
+    private readonly string _server = Environment.GetEnvironmentVariable("CLINICHUB_TEST_SQL")
+        ?? "Server=.;Integrated Security=True;TrustServerCertificate=True";
+    private readonly string _prefix = $"ClinicHub_Test_{Guid.NewGuid():N}_";
+
+    private string Catalog => new SqlConnectionStringBuilder(_server) { InitialCatalog = _prefix + "catalog" }.ConnectionString;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.UseSetting("ConnectionStrings:ClinicHub", _db.ConnectionString);
+        builder.UseSetting("ConnectionStrings:Catalog", Catalog);
+        builder.UseSetting("ConnectionStrings:ClinicServer", _server);
+        builder.UseSetting("Clinics:DatabasePrefix", _prefix);
         builder.UseSetting("Demo:Enabled", "true");
         builder.UseSetting("RateLimits:LoginsPerMinute", "1000");
     }
 
-    public async Task<HttpClient> SignInAsync(string user)
+    /// <summary>Signs in a demo user; someone who works at several clinics is put in <paramref name="clinic"/>.</summary>
+    public async Task<HttpClient> SignInAsync(string user, string clinic = "harbourview")
     {
         var c = CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
         c.DefaultRequestHeaders.Add("X-ClinicHub", "1");
-        (await c.PostAsJsonAsync("/api/auth/demo-login", new { userName = user })).EnsureSuccessStatusCode();
+        var me = await (await c.PostAsJsonAsync("/api/auth/demo-login", new { userName = user })).EnsureSuccessStatusCode().Content.ReadFromJsonAsync<JsonNode>();
+        if (me!["clinic"] is null)
+        {
+            var id = me["clinics"]!.AsArray().Single(x => (string)x!["slug"]! == clinic)!["id"]!.GetValue<int>();
+            (await c.PostAsJsonAsync("/api/auth/clinic", new { clinicId = id })).EnsureSuccessStatusCode();
+        }
         return c;
     }
 
@@ -33,7 +46,21 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     async Task IAsyncLifetime.DisposeAsync()
     {
         await base.DisposeAsync();
-        await _db.DisposeAsync();
+        SqlConnection.ClearAllPools();
+        await using var conn = new SqlConnection(_server);
+        await conn.OpenAsync();
+        var names = new List<string>();
+        await using (var list = new SqlCommand("SELECT name FROM sys.databases WHERE name LIKE @p", conn))
+        {
+            list.Parameters.AddWithValue("@p", _prefix + "%");
+            await using var r = await list.ExecuteReaderAsync();
+            while (await r.ReadAsync()) names.Add(r.GetString(0));
+        }
+        foreach (var name in names)
+        {
+            await using var drop = new SqlCommand($"ALTER DATABASE [{name}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{name}];", conn);
+            await drop.ExecuteNonQueryAsync();
+        }
     }
 }
 
@@ -146,9 +173,17 @@ public class FrontDeskTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 }
 
-/// <summary>Reads the factory's database directly to check side effects.</summary>
-internal sealed class TestDatabaseReader(ApiFactory factory)
+/// <summary>Reads a demo clinic's database (Harbourview unless named) directly to check side effects.</summary>
+internal sealed class TestDatabaseReader(ApiFactory factory, string clinic = "harbourview")
 {
-    public ClinicHub.Api.Data.ClinicHubDbContext Context() =>
-        factory.Services.CreateScope().ServiceProvider.GetRequiredService<ClinicHub.Api.Data.ClinicHubDbContext>();
+    public ClinicHub.Api.Data.ClinicHubDbContext Context()
+    {
+        using var scope = factory.Services.CreateScope();
+        var catalog = scope.ServiceProvider.GetRequiredService<ClinicHub.Api.Catalog.CatalogDbContext>();
+        var c = catalog.Clinics.Single(x => x.Slug == clinic);
+        return factory.Services.GetRequiredService<ClinicHub.Api.Catalog.ClinicDatabases>().Open(c);
+    }
+
+    public ClinicHub.Api.Catalog.CatalogDbContext Catalog() =>
+        factory.Services.CreateScope().ServiceProvider.GetRequiredService<ClinicHub.Api.Catalog.CatalogDbContext>();
 }

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace ClinicHub.Api.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialSchema : Migration
+    public partial class InitialClinic : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -144,6 +144,7 @@ namespace ClinicHub.Api.Data.Migrations
                     HealthCardVersion = table.Column<string>(type: "nvarchar(2)", maxLength: 2, nullable: true),
                     HealthCardExpiry = table.Column<DateOnly>(type: "date", nullable: true),
                     CoverageProvince = table.Column<string>(type: "nvarchar(2)", maxLength: 2, nullable: true),
+                    OutOfProvinceNumber = table.Column<string>(type: "nvarchar(12)", maxLength: 12, nullable: true),
                     Phone = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: true),
                     Email = table.Column<string>(type: "nvarchar(120)", maxLength: 120, nullable: true),
                     AddressLine1 = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: true),
@@ -200,30 +201,14 @@ namespace ClinicHub.Api.Data.Migrations
                     GroupNumber = table.Column<string>(type: "nvarchar(4)", maxLength: 4, nullable: true),
                     PaymentDate = table.Column<DateOnly>(type: "date", nullable: false),
                     FileName = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    FileContent = table.Column<string>(type: "nvarchar(max)", maxLength: -1, nullable: false),
+                    Simulated = table.Column<bool>(type: "bit", nullable: false),
                     TotalPaid = table.Column<decimal>(type: "decimal(10,2)", precision: 10, scale: 2, nullable: false),
                     ImportedUtc = table.Column<DateTime>(type: "datetime2(3)", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_RemittanceAdvice", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Role",
-                schema: "sec",
-                columns: table => new
-                {
-                    Id = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    Name = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    Description = table.Column<string>(type: "nvarchar(300)", maxLength: 300, nullable: true),
-                    Permissions = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: false),
-                    RequireTwoFactor = table.Column<bool>(type: "bit", nullable: false),
-                    IsSystem = table.Column<bool>(type: "bit", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Role", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -250,22 +235,12 @@ namespace ClinicHub.Api.Data.Migrations
                 schema: "sec",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
+                    Id = table.Column<int>(type: "int", nullable: false),
                     UserName = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
                     DisplayName = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    PasswordHash = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    Credentials = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
-                    CreatedUtc = table.Column<DateTime>(type: "datetime2(3)", nullable: false),
-                    LastLoginUtc = table.Column<DateTime>(type: "datetime2(3)", nullable: true),
-                    SecurityStamp = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    MustChangePassword = table.Column<bool>(type: "bit", nullable: false),
-                    FailedLoginCount = table.Column<int>(type: "int", nullable: false),
-                    LockoutEndUtc = table.Column<DateTime>(type: "datetime2(3)", nullable: true),
-                    TwoFactorSecret = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
-                    TwoFactorEnabled = table.Column<bool>(type: "bit", nullable: false),
-                    TwoFactorLastStep = table.Column<long>(type: "bigint", nullable: false),
-                    Locations = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true)
+                    SyncedUtc = table.Column<DateTime>(type: "datetime2(3)", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -406,64 +381,6 @@ namespace ClinicHub.Api.Data.Migrations
                         principalSchema: "sec",
                         principalTable: "User",
                         principalColumn: "Id");
-                });
-
-            migrationBuilder.CreateTable(
-                name: "SecurityEvent",
-                schema: "sec",
-                columns: table => new
-                {
-                    Id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    AtUtc = table.Column<DateTime>(type: "datetime2(3)", nullable: false),
-                    Type = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
-                    ActorUserId = table.Column<int>(type: "int", nullable: true),
-                    TargetUserId = table.Column<int>(type: "int", nullable: true),
-                    Detail = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
-                    IpAddress = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_SecurityEvent", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_SecurityEvent_User_ActorUserId",
-                        column: x => x.ActorUserId,
-                        principalSchema: "sec",
-                        principalTable: "User",
-                        principalColumn: "Id");
-                    table.ForeignKey(
-                        name: "FK_SecurityEvent_User_TargetUserId",
-                        column: x => x.TargetUserId,
-                        principalSchema: "sec",
-                        principalTable: "User",
-                        principalColumn: "Id");
-                });
-
-            migrationBuilder.CreateTable(
-                name: "UserRole",
-                schema: "sec",
-                columns: table => new
-                {
-                    UserId = table.Column<int>(type: "int", nullable: false),
-                    RoleId = table.Column<int>(type: "int", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_UserRole", x => new { x.UserId, x.RoleId });
-                    table.ForeignKey(
-                        name: "FK_UserRole_Role_RoleId",
-                        column: x => x.RoleId,
-                        principalSchema: "sec",
-                        principalTable: "Role",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_UserRole_User_UserId",
-                        column: x => x.UserId,
-                        principalSchema: "sec",
-                        principalTable: "User",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -1798,13 +1715,6 @@ namespace ClinicHub.Api.Data.Migrations
                 column: "RemittanceAdviceId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Role_Name",
-                schema: "sec",
-                table: "Role",
-                column: "Name",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
                 name: "IX_Room_LocationId_Name",
                 schema: "clinic",
                 table: "Room",
@@ -1828,24 +1738,6 @@ namespace ClinicHub.Api.Data.Migrations
                 schema: "sched",
                 table: "ScheduleTemplate",
                 column: "ProviderId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_SecurityEvent_ActorUserId",
-                schema: "sec",
-                table: "SecurityEvent",
-                column: "ActorUserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_SecurityEvent_AtUtc",
-                schema: "sec",
-                table: "SecurityEvent",
-                column: "AtUtc");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_SecurityEvent_TargetUserId",
-                schema: "sec",
-                table: "SecurityEvent",
-                column: "TargetUserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ServiceRequest_EncounterId",
@@ -1886,12 +1778,6 @@ namespace ClinicHub.Api.Data.Migrations
                 table: "User",
                 column: "UserName",
                 unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_UserRole_RoleId",
-                schema: "sec",
-                table: "UserRole",
-                column: "RoleId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_VitalSigns_EncounterId",
@@ -1974,14 +1860,6 @@ namespace ClinicHub.Api.Data.Migrations
                 schema: "sched");
 
             migrationBuilder.DropTable(
-                name: "SecurityEvent",
-                schema: "sec");
-
-            migrationBuilder.DropTable(
-                name: "UserRole",
-                schema: "sec");
-
-            migrationBuilder.DropTable(
                 name: "VitalSigns",
                 schema: "care");
 
@@ -2016,10 +1894,6 @@ namespace ClinicHub.Api.Data.Migrations
             migrationBuilder.DropTable(
                 name: "RemittanceAdvice",
                 schema: "billing");
-
-            migrationBuilder.DropTable(
-                name: "Role",
-                schema: "sec");
 
             migrationBuilder.DropTable(
                 name: "ConsentDirective",

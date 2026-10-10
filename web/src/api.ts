@@ -1,7 +1,14 @@
 // Typed client for ClinicHub.Api. Shapes mirror the C# records in src/ClinicHub.Api/Endpoints.
 
-export type Me = { id: number; userName: string; displayName: string; roles: string[]; permissions: string[]; providerId?: number }
-export type Settings = { demo: boolean; demoUsers: string[] }
+export type ClinicBrief = { id: number; slug: string; name: string }
+export type Me = {
+  id: number; userName: string; displayName: string; credentials?: string
+  /** The clinic chosen after sign-in; its database serves every page. */
+  clinic?: ClinicBrief; clinics: ClinicBrief[]
+  roles: string[]; permissions: string[]; providerId?: number
+  twoFactorEnabled: boolean; twoFactorRequired: boolean; pendingAction?: 'change-password' | 'setup-two-factor'; isPlatformAdmin: boolean
+}
+export type Settings = { demo: boolean; demoUsers: string[]; accountsLocked: boolean }
 
 export type Status = 'Booked' | 'Arrived' | 'Roomed' | 'WithProvider' | 'Completed' | 'NoShow' | 'Cancelled'
 
@@ -24,7 +31,7 @@ export type DayView = {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public fieldErrors: Record<string, string[]> = {}) {
+  constructor(public status: number, message: string, public fieldErrors: Record<string, string[]> = {}, public data: Record<string, unknown> = {}) {
     super(message)
   }
 }
@@ -42,7 +49,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/api/auth/')) window.dispatchEvent(new Event('clinichub:signed-out'))
     // Problem details: the specific message is in detail; title is the generic status text unless no detail was given.
-    throw new ApiError(res.status, data?.detail ?? data?.title ?? `Request failed (${res.status})`, data?.errors ?? {})
+    throw new ApiError(res.status, data?.detail ?? data?.title ?? `Request failed (${res.status})`, data?.errors ?? {}, data ?? {})
   }
   return data as T
 }
@@ -50,7 +57,13 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 export const api = {
   settings: () => request<Settings>('GET', '/api/settings'),
   me: () => request<Me | undefined>('GET', '/api/auth/me'),
-  login: (userName: string, password: string) => request<Me>('POST', '/api/auth/login', { userName, password }),
+  login: (userName: string, password: string, code?: string) => request<Me>('POST', '/api/auth/login', { userName, password, code: code ?? null }),
+  selectClinic: (clinicId: number) => request<Me>('POST', '/api/auth/clinic', { clinicId }),
+  changePassword: (currentPassword: string, newPassword: string) => request<Me>('POST', '/api/auth/password', { currentPassword, newPassword }),
+  twoFactorSetup: () => request<{ secret: string; otpAuthUri: string }>('POST', '/api/auth/two-factor/setup'),
+  twoFactorEnable: (code: string) => request<Me>('POST', '/api/auth/two-factor/enable', { code }),
+  twoFactorDisable: (password: string) => request<Me>('POST', '/api/auth/two-factor/disable', { password }),
+  revokeOtherSessions: () => request<void>('POST', '/api/auth/sessions/revoke'),
   demoLogin: (userName: string) => request<Me>('POST', '/api/auth/demo-login', { userName }),
   logout: () => request<void>('POST', '/api/auth/logout'),
   day: (date?: string) => request<DayView>('GET', `/api/frontdesk/day${date ? `?date=${date}` : ''}`),
@@ -209,3 +222,45 @@ export async function fetchText(url: string) {
   if (!res.ok) throw new ApiError(res.status, `Could not load the file (${res.status}).`)
   return res.text()
 }
+
+// --- people, roles, logs, clinics ---
+
+export type PermissionInfo = { key: string; group: string; label: string }
+export type StaffUser = {
+  id: number; userName: string; displayName: string; credentials?: string; isActive: boolean; roleIds: number[]; roles: string[]
+  permissions: string[]; otherClinics: string[]; twoFactorEnabled: boolean; twoFactorRequired: boolean; mustChangePassword: boolean
+  isLockedOut: boolean; lastLoginUtc?: string; createdUtc: string
+}
+export type RoleInfo = { id: number; name: string; description?: string; permissions: string[]; requireTwoFactor: boolean; isSystem: boolean; userCount: number }
+export type SaveRole = { name: string; description: string | null; permissions: string[]; requireTwoFactor: boolean }
+export type AuditRow = { id: number; atUtc: string; type: string; actor?: string; target?: string; detail?: string; ipAddress?: string }
+export type AccessRow = { id: number; atUtc: string; user: string; patient: string; mrn: string; action: string; context: string; ipAddress?: string }
+export type ClinicInfo = { id: number; slug: string; name: string; databaseName: string; isActive: boolean; members: number; createdUtc: string }
+
+export const admin = {
+  permissions: () => request<PermissionInfo[]>('GET', '/api/permissions'),
+  users: () => request<StaffUser[]>('GET', '/api/users'),
+  createUser: (u: { userName: string; displayName?: string; credentials?: string | null; roleIds: number[]; password?: string }) =>
+    request<StaffUser>('POST', '/api/users', u),
+  updateUser: (id: number, u: { displayName: string; credentials: string | null; roleIds: number[] }) => request<StaffUser | undefined>('PUT', `/api/users/${id}`, u),
+  resetPassword: (id: number, password: string) => request<void>('POST', `/api/users/${id}/password`, { password }),
+  unlock: (id: number) => request<void>('POST', `/api/users/${id}/unlock`),
+  resetTwoFactor: (id: number) => request<void>('POST', `/api/users/${id}/two-factor/reset`),
+  revokeSessions: (id: number) => request<void>('POST', `/api/users/${id}/sessions/revoke`),
+  roles: () => request<RoleInfo[]>('GET', '/api/roles'),
+  createRole: (r: SaveRole) => request<RoleInfo>('POST', '/api/roles', r),
+  updateRole: (id: number, r: SaveRole) => request<RoleInfo>('PUT', `/api/roles/${id}`, r),
+  deleteRole: (id: number) => request<void>('DELETE', `/api/roles/${id}`),
+  audit: (q: { type?: string; before?: number }) => {
+    const p = new URLSearchParams()
+    if (q.type) p.set('type', q.type)
+    if (q.before) p.set('before', String(q.before))
+    return request<AuditRow[]>('GET', `/api/audit?${p}`)
+  },
+  access: (before?: number) => request<AccessRow[]>('GET', `/api/audit/access${before ? `?before=${before}` : ''}`),
+  clinics: () => request<ClinicInfo[]>('GET', '/api/platform/clinics'),
+  createClinic: (slug: string, name: string) => request<ClinicInfo>('POST', '/api/platform/clinics', { slug, name }),
+}
+
+export const firstError = (err: unknown, fallback: string) =>
+  err instanceof ApiError ? Object.values(err.fieldErrors).flat()[0] ?? err.message : fallback

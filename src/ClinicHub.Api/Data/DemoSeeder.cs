@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using ClinicHub.Api.Auth;
+using ClinicHub.Api.Catalog;
 using ClinicHub.Api.Domain;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -8,51 +9,121 @@ namespace ClinicHub.Api.Data;
 
 public class DemoOptions
 {
-    /// <summary>Seeds a fictional clinic with synthetic patients and one-click demo users. Never with real patients.</summary>
+    /// <summary>Seeds fictional clinics with synthetic patients and one-click demo users. Never with real patients.</summary>
     public bool Enabled { get; set; }
+
+    /// <summary>Public demo: accounts, roles, passwords and clinics stay as seeded, since every visitor can be an administrator.</summary>
+    public bool LockAccounts { get; set; }
 }
 
 /// <summary>
-/// A fictional Toronto walk-in and family practice clinic. Every person is synthetic; health card
-/// numbers have valid check digits but are random. The day's arrivals follow the hourly curve of the
-/// legacy system (peaks 08–11 and 15–18), scaled to one clinic.
+/// Two fictional Toronto-area clinics, each in its own database: Harbourview (walk-in and family practice)
+/// and Lakeshore (family health). Dr. Patel works at both, as Ontario physicians often split their week,
+/// with one OHIP billing number and each clinic's group number. Every person is synthetic; health card
+/// numbers have valid check digits but are random. Arrivals follow the hourly curve of the legacy system
+/// (peaks 08–11 and 15–18), scaled to one clinic.
 /// </summary>
 public static class DemoSeeder
 {
     public static readonly string[] DemoUsers = ["frontdesk", "nurse", "dr.patel", "billing", "privacy", "admin"];
     public static TimeZoneInfo Toronto { get; } = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
 
-    public static async Task SeedAsync(ClinicHubDbContext db, IPasswordHasher<User> hasher, DateTime nowUtc)
+    private static readonly DayOfWeek[] Weekdays = [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday];
+    private static readonly DayOfWeek[] Weekend = [DayOfWeek.Saturday, DayOfWeek.Sunday];
+
+    public record DemoAccount(string UserName, string DisplayName, string? Credentials = null, bool PlatformAdmin = false);
+    public record DemoProvider(string? Title, string First, string Last, string Kind, string? Billing, string? SpecialtyCode, string Specialty,
+        decimal Overhead, string UserName, DayOfWeek[] Days, bool WalkIns = true);
+    public record DemoClinic(string Slug, string Name, string Address, string City, string PostalCode, string Phone, string Group,
+        int ExamRooms, int Patients, string MrnPrefix, int Seed, string DeskUser, string NurseUser,
+        (string UserName, string Role)[] Members, DemoProvider[] Providers);
+
+    public static readonly DemoAccount[] Accounts =
+    [
+        new("frontdesk", "Jordan Lee"), new("nurse", "Sam Okafor", "RN"), new("dr.patel", "Dr. Nadia Patel", "MD, CCFP"),
+        new("billing", "Chris Moreau"), new("privacy", "Alex Tremblay"), new("admin", "Clinic Administrator", PlatformAdmin: true),
+        new("dr.chen", "Dr. Marcus Chen", "MD, CCFP"), new("dr.rossi", "Dr. Elena Rossi", "MD, CCFP"), new("dr.haddad", "Dr. Omar Haddad", "MD, FRCPC"),
+        new("np.mensah", "Grace Mensah", "NP-PHC"), new("ls.frontdesk", "Riley Morgan"), new("ls.nurse", "Priya Nair", "RPN"),
+        new("dr.okoye", "Dr. Hannah Okoye", "MD, CCFP"), new("np.fraser", "Liam Fraser", "NP-PHC"),
+    ];
+
+    public static readonly DemoClinic[] Clinics =
+    [
+        new("harbourview", "Harbourview Medical Centre (demo)", "100 Example Street, Suite 200", "Toronto", "M5V 0A1", "(416) 555-0142", "AB12",
+            6, 400, "HV", 20261010, "frontdesk", "nurse",
+            [("frontdesk", SystemRoles.FrontDesk), ("nurse", SystemRoles.Nurse), ("dr.patel", SystemRoles.Physician), ("billing", SystemRoles.Billing),
+             ("privacy", SystemRoles.PrivacyOfficer), ("admin", SystemRoles.Administrator), ("dr.chen", SystemRoles.Physician),
+             ("dr.rossi", SystemRoles.Physician), ("dr.haddad", SystemRoles.Physician), ("np.mensah", SystemRoles.Physician)],
+            [
+                // Dr. Patel: Monday, Tuesday, Thursday and the weekend walk-in clinic here; Wednesday and Friday at Lakeshore.
+                new("Dr.", "Nadia", "Patel", ProviderKinds.Physician, "123456", "00", "Family practice", 30, "dr.patel",
+                    [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Thursday, .. Weekend]),
+                new("Dr.", "Marcus", "Chen", ProviderKinds.Physician, "234567", "00", "Family practice", 30, "dr.chen", Weekdays),
+                new("Dr.", "Elena", "Rossi", ProviderKinds.Physician, "345678", "00", "Family practice", 30, "dr.rossi", Weekdays),
+                new("Dr.", "Omar", "Haddad", ProviderKinds.Physician, "456789", "13", "Internal medicine", 25, "dr.haddad", Weekdays, WalkIns: false),
+                new(null, "Grace", "Mensah", ProviderKinds.NursePractitioner, null, null, "Primary care", 0, "np.mensah", [.. Weekdays, .. Weekend]),
+            ]),
+        new("lakeshore", "Lakeshore Family Health (demo)", "2500 Example Boulevard West", "Etobicoke", "M8V 1A1", "(416) 555-0187", "CD34",
+            4, 250, "LS", 20261012, "ls.frontdesk", "ls.nurse",
+            [("ls.frontdesk", SystemRoles.FrontDesk), ("ls.nurse", SystemRoles.Nurse), ("dr.patel", SystemRoles.Physician),
+             ("admin", SystemRoles.Administrator), ("dr.okoye", SystemRoles.Physician), ("np.fraser", SystemRoles.Physician)],
+            [
+                new("Dr.", "Nadia", "Patel", ProviderKinds.Physician, "123456", "00", "Family practice", 30, "dr.patel", [DayOfWeek.Wednesday, DayOfWeek.Friday]),
+                new("Dr.", "Hannah", "Okoye", ProviderKinds.Physician, "567890", "00", "Family practice", 28, "dr.okoye", [.. Weekdays, DayOfWeek.Saturday]),
+                new(null, "Liam", "Fraser", ProviderKinds.NursePractitioner, null, null, "Primary care", 0, "np.fraser", [.. Weekdays, .. Weekend]),
+            ]),
+    ];
+
+    /// <summary>Creates what is missing: demo accounts, the demo clinics and their databases, memberships, then each clinic's data.</summary>
+    public static async Task SeedAsync(CatalogDbContext catalog, ClinicProvisioning provisioning, ClinicDatabases databases,
+        IPasswordHasher<Account> hasher, DateTime nowUtc)
     {
-        if (!await db.Locations.AnyAsync())
-            await SeedClinic(db, hasher, nowUtc);
+        var existing = await catalog.Accounts.ToDictionaryAsync(a => a.UserName);
+        foreach (var d in Accounts.Where(d => !existing.ContainsKey(d.UserName)))
+        {
+            var a = new Account { UserName = d.UserName, DisplayName = d.DisplayName, Credentials = d.Credentials, IsPlatformAdmin = d.PlatformAdmin, CreatedUtc = nowUtc };
+            a.PasswordHash = hasher.HashPassword(a, RandomNumberGenerator.GetHexString(32)); // demo accounts use one-click sign-in
+            catalog.Accounts.Add(existing[d.UserName] = a);
+        }
+        await catalog.SaveChangesAsync();
+
+        foreach (var profile in Clinics)
+        {
+            var clinic = await catalog.Clinics.SingleOrDefaultAsync(c => c.Slug == profile.Slug)
+                ?? await provisioning.CreateAsync(profile.Slug, profile.Name, creatorAccountId: null);
+            var roles = await catalog.Roles.Where(r => r.ClinicId == clinic.Id).ToDictionaryAsync(r => r.Name);
+            var held = await catalog.AccountRoles.Where(ar => ar.Role.ClinicId == clinic.Id).Select(ar => new { ar.AccountId, ar.RoleId }).ToListAsync();
+            foreach (var (userName, role) in profile.Members)
+                if (!held.Any(h => h.AccountId == existing[userName].Id && h.RoleId == roles[role].Id))
+                    catalog.AccountRoles.Add(new AccountRole { AccountId = existing[userName].Id, RoleId = roles[role].Id });
+            await catalog.SaveChangesAsync();
+
+            await using var db = databases.Open(clinic);
+            foreach (var (userName, _) in profile.Members.DistinctBy(m => m.UserName))
+                await StaffSync.EnsureAsync(db, existing[userName], member: true, nowUtc);
+            await SeedClinicData(db, profile, nowUtc);
+        }
+    }
+
+    private static async Task SeedClinicData(ClinicHubDbContext db, DemoClinic profile, DateTime nowUtc)
+    {
+        if (!await db.Providers.AnyAsync())
+            await SeedClinic(db, profile, nowUtc);
 
         // Keep a rolling week of appointments: missing days are generated on start-up.
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(nowUtc, Toronto));
         for (var day = today; day <= today.AddDays(7); day = day.AddDays(1))
-            await SeedDay(db, day, nowUtc);
-        await SeedEncounters(db, today);
-        await SeedBillingDemo(db, hasher, today, nowUtc);
+            await SeedDay(db, profile, day, nowUtc);
+        await SeedEncounters(db, profile, today);
+        await SeedBillingDemo(db, today, nowUtc);
     }
 
     /// <summary>
-    /// Gives every provider a sign-in (not offered as a one-click demo user) so their visits can be signed,
-    /// gives reciprocal-billing patients their home province's number, and signs about two thirds of
-    /// today's finished visits with a short note, so the billing clerk starts with claims to send.
+    /// Gives reciprocal-billing patients their home province's number, and signs about two thirds of today's
+    /// finished visits with a short note, so the billing clerk starts with claims to send.
     /// </summary>
-    private static async Task SeedBillingDemo(ClinicHubDbContext db, IPasswordHasher<User> hasher, DateOnly today, DateTime nowUtc)
+    private static async Task SeedBillingDemo(ClinicHubDbContext db, DateOnly today, DateTime nowUtc)
     {
-        var physicianRole = await db.Roles.SingleAsync(r => r.Name == SystemRoles.Physician);
-        foreach (var p in await db.Providers.Where(p => p.UserId == null && p.IsActive).ToListAsync())
-        {
-            var user = new User
-            {
-                UserName = $"{(p.Kind == ProviderKinds.NursePractitioner ? "np" : "dr")}.{p.LastName.ToLowerInvariant()}", DisplayName = p.DisplayName,
-                CreatedUtc = nowUtc, Roles = [new UserRole { Role = physicianRole }],
-            };
-            user.PasswordHash = hasher.HashPassword(user, RandomNumberGenerator.GetHexString(32));
-            p.User = user;
-        }
         var rng = new Random(20261011);
         foreach (var p in await db.Patients.Where(p => p.HealthCardNumber == null && p.CoverageProvince != null && p.CoverageProvince != "ON" && p.OutOfProvinceNumber == null).ToListAsync())
             p.OutOfProvinceNumber = string.Concat(Enumerable.Range(0, 9).Select(_ => rng.Next(0, 10)));
@@ -118,7 +189,7 @@ public static class DemoSeeder
     /// Today's patients who have already arrived get the encounter check-in would have opened, and those
     /// roomed get the nurse's vitals, so the clinician's worklist starts mid-day like the front desk does.
     /// </summary>
-    private static async Task SeedEncounters(ClinicHubDbContext db, DateOnly today)
+    private static async Task SeedEncounters(ClinicHubDbContext db, DemoClinic profile, DateOnly today)
     {
         var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(today.ToDateTime(TimeOnly.MinValue), Toronto);
         string[] underway = [AppointmentStatus.Arrived, AppointmentStatus.Roomed, AppointmentStatus.WithProvider, AppointmentStatus.Completed];
@@ -129,8 +200,8 @@ public static class DemoSeeder
         if (appts.Count == 0)
             return;
         var reciprocal = await db.Provinces.ToDictionaryAsync(p => p.Code, p => p.ReciprocalBilling);
-        var deskId = await db.Users.Where(u => u.UserName == "frontdesk").Select(u => u.Id).FirstAsync();
-        var nurseId = await db.Users.Where(u => u.UserName == "nurse").Select(u => u.Id).FirstAsync();
+        var deskId = await db.Users.Where(u => u.UserName == profile.DeskUser).Select(u => u.Id).FirstAsync();
+        var nurseId = await db.Users.Where(u => u.UserName == profile.NurseUser).Select(u => u.Id).FirstAsync();
         var rng = new Random(today.DayNumber + 7);
 
         foreach (var a in appts)
@@ -164,73 +235,51 @@ public static class DemoSeeder
         await db.SaveChangesAsync();
     }
 
-    private static async Task SeedClinic(ClinicHubDbContext db, IPasswordHasher<User> hasher, DateTime nowUtc)
+    private static async Task SeedClinic(ClinicHubDbContext db, DemoClinic profile, DateTime nowUtc)
     {
-        var roles = await db.Roles.ToDictionaryAsync(r => r.Name);
-        User NewUser(string userName, string name, params string[] roleNames)
-        {
-            var u = new User
-            {
-                UserName = userName, DisplayName = name, CreatedUtc = nowUtc,
-                Roles = roleNames.Select(r => new UserRole { Role = roles[r] }).ToList(),
-            };
-            u.PasswordHash = hasher.HashPassword(u, RandomNumberGenerator.GetHexString(32)); // demo users use one-click sign-in
-            return u;
-        }
+        // The location opened with the clinic gets the demo address and rooms.
+        var location = await db.Locations.Include(l => l.Rooms).OrderBy(l => l.Id).FirstAsync();
+        location.Name = profile.Name;
+        location.AddressLine1 = profile.Address;
+        location.City = profile.City;
+        location.PostalCode = profile.PostalCode;
+        location.Phone = profile.Phone;
+        location.OhipGroupNumber = profile.Group;
+        location.Rooms.AddRange([.. Enumerable.Range(1, profile.ExamRooms).Select(i => new Room { Name = $"Exam {i}" }),
+            new Room { Name = "Procedure", Kind = RoomKinds.Procedure },
+            new Room { Name = "Lab collection", Kind = RoomKinds.LabCollection },
+            new Room { Name = "ECG", Kind = RoomKinds.Diagnostics }]);
 
-        var location = new Location
+        var staff = await db.Users.ToDictionaryAsync(u => u.UserName, u => u.Id);
+        var providers = profile.Providers.Select(p => (Profile: p, Provider: new Provider
         {
-            Name = "Harbourview Medical Centre (demo)", AddressLine1 = "100 Example Street, Suite 200", City = "Toronto",
-            Province = "ON", PostalCode = "M5V 0A1", Phone = "(416) 555-0142", OhipGroupNumber = "AB12",
-            Rooms = [.. Enumerable.Range(1, 6).Select(i => new Room { Name = $"Exam {i}" }),
-                new Room { Name = "Procedure", Kind = RoomKinds.Procedure },
-                new Room { Name = "Lab collection", Kind = RoomKinds.LabCollection },
-                new Room { Name = "ECG", Kind = RoomKinds.Diagnostics }],
-        };
-        db.Locations.Add(location);
-
-        var drPatel = NewUser("dr.patel", "Dr. Nadia Patel", SystemRoles.Physician);
-        var users = new[]
-        {
-            NewUser("frontdesk", "Jordan Lee", SystemRoles.FrontDesk), NewUser("nurse", "Sam Okafor", SystemRoles.Nurse),
-            drPatel, NewUser("billing", "Chris Moreau", SystemRoles.Billing), NewUser("privacy", "Alex Tremblay", SystemRoles.PrivacyOfficer),
-            NewUser("admin", "Clinic Administrator", SystemRoles.Administrator),
-        };
-        db.Users.AddRange(users);
-
-        Provider Doc(string first, string last, string billing, string specialtyCode, string specialty, decimal overhead, User? user = null) => new()
-        {
-            Title = "Dr.", FirstName = first, LastName = last, Kind = ProviderKinds.Physician, RegistrationNumber = $"9{billing[..4]}",
-            OhipBillingNumber = billing, SpecialtyCode = specialtyCode, SpecialtyName = specialty, OverheadPercent = overhead, User = user,
-        };
-        var providers = new[]
-        {
-            Doc("Nadia", "Patel", "123456", "00", "Family practice", 30, drPatel),
-            Doc("Marcus", "Chen", "234567", "00", "Family practice", 30),
-            Doc("Elena", "Rossi", "345678", "00", "Family practice", 30),
-            Doc("Omar", "Haddad", "456789", "13", "Internal medicine", 25),
-            new Provider { FirstName = "Grace", LastName = "Mensah", Kind = ProviderKinds.NursePractitioner, RegistrationNumber = "NP7731",
-                SpecialtyName = "Primary care", OverheadPercent = 0 },
-        };
-        db.Providers.AddRange(providers);
+            Title = p.Title, FirstName = p.First, LastName = p.Last, Kind = p.Kind, OhipBillingNumber = p.Billing, SpecialtyCode = p.SpecialtyCode,
+            SpecialtyName = p.Specialty, OverheadPercent = p.Overhead, UserId = staff[p.UserName],
+            RegistrationNumber = p.Billing is { } b ? $"9{b[..4]}" : $"NP{p.Last.Length * 1111 % 10000:0000}",
+        })).ToList();
+        db.Providers.AddRange(providers.Select(p => p.Provider));
         await db.SaveChangesAsync();
 
         var from = new DateOnly(2026, 1, 1);
-        foreach (var p in providers)
-            foreach (var day in new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday })
+        foreach (var (p, provider) in providers)
+            foreach (var day in p.Days)
             {
-                db.ScheduleTemplates.Add(new ScheduleTemplate { ProviderId = p.Id, LocationId = location.Id, DayOfWeek = day,
-                    StartTime = new(8, 0), EndTime = new(12, 0), SlotMinutes = 15, AcceptsWalkIns = p.LastName != "Haddad", EffectiveFrom = from });
-                db.ScheduleTemplates.Add(new ScheduleTemplate { ProviderId = p.Id, LocationId = location.Id, DayOfWeek = day,
-                    StartTime = new(13, 0), EndTime = new(18, 0), SlotMinutes = 15, AcceptsWalkIns = p.LastName != "Haddad", EffectiveFrom = from });
+                ScheduleTemplate Session(TimeOnly start, TimeOnly end) => new()
+                {
+                    ProviderId = provider.Id, LocationId = location.Id, DayOfWeek = day, StartTime = start, EndTime = end, SlotMinutes = 15,
+                    AcceptsWalkIns = p.WalkIns || Weekend.Contains(day), EffectiveFrom = from,
+                };
+                // Weekend walk-in clinic 09:00–15:00; weekdays two sessions around lunch.
+                if (Weekend.Contains(day))
+                    db.ScheduleTemplates.Add(Session(new(9, 0), new(15, 0)));
+                else
+                {
+                    db.ScheduleTemplates.Add(Session(new(8, 0), new(12, 0)));
+                    db.ScheduleTemplates.Add(Session(new(13, 0), new(18, 0)));
+                }
             }
-        // Weekend walk-in clinic: two providers, 09:00–15:00. Dr. Patel is one so the demo physician has patients every day.
-        foreach (var p in providers.Where(p => p.LastName is "Patel" or "Mensah"))
-            foreach (var day in new[] { DayOfWeek.Saturday, DayOfWeek.Sunday })
-                db.ScheduleTemplates.Add(new ScheduleTemplate { ProviderId = p.Id, LocationId = location.Id, DayOfWeek = day,
-                    StartTime = new(9, 0), EndTime = new(15, 0), SlotMinutes = 15, AcceptsWalkIns = true, EffectiveFrom = from });
 
-        db.Patients.AddRange(SyntheticPatients(400, nowUtc));
+        db.Patients.AddRange(SyntheticPatients(profile.Patients, nowUtc, profile.MrnPrefix, profile.Seed));
         await db.SaveChangesAsync();
     }
 
@@ -261,9 +310,9 @@ public static class DemoSeeder
         ("Etobicoke", "M9B"), ("Mississauga", "L5B"), ("Brampton", "L6T"), ("Markham", "L3R"), ("Vaughan", "L4K"),
     ];
 
-    public static IEnumerable<Patient> SyntheticPatients(int count, DateTime nowUtc)
+    public static IEnumerable<Patient> SyntheticPatients(int count, DateTime nowUtc, string mrnPrefix = "HV", int seed = 20261010)
     {
-        var rng = new Random(20261010);
+        var rng = new Random(seed);
         for (var i = 1; i <= count; i++)
         {
             var sex = rng.NextDouble() < 0.52 ? "F" : rng.NextDouble() < 0.98 ? "M" : "X";
@@ -279,7 +328,7 @@ public static class DemoSeeder
             var dob = new DateOnly(1940, 1, 1).AddDays(rng.Next(0, 365 * 84));
             yield return new Patient
             {
-                Mrn = $"HV{i:000000}", FirstName = first, LastName = last, DateOfBirth = dob,
+                Mrn = $"{mrnPrefix}{i:000000}", FirstName = first, LastName = last, DateOfBirth = dob,
                 Sex = sex,
                 HealthCardNumber = card, HealthCardVersion = version, CoverageProvince = coverage,
                 HealthCardExpiry = card is null ? null : DateOnly.FromDateTime(nowUtc).AddDays(rng.Next(-60, 5 * 365)),
@@ -307,7 +356,7 @@ public static class DemoSeeder
     /// <summary>Arrivals per hour from the legacy system (2016–2023, outpatient side), 08:00–17:00.</summary>
     private static readonly double[] HourlyWeight = [84, 85, 79, 60, 0, 30, 36, 50, 51, 50];
 
-    private static async Task SeedDay(ClinicHubDbContext db, DateOnly day, DateTime nowUtc)
+    private static async Task SeedDay(ClinicHubDbContext db, DemoClinic profile, DateOnly day, DateTime nowUtc)
     {
         var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(day.ToDateTime(TimeOnly.MinValue), Toronto);
         if (await db.Appointments.AnyAsync(a => a.StartUtc >= dayStartUtc && a.StartUtc < dayStartUtc.AddDays(1)))
@@ -319,7 +368,7 @@ public static class DemoSeeder
             .Where(t => t.DayOfWeek == day.DayOfWeek && t.Provider.IsActive).OrderBy(t => t.ProviderId).ThenBy(t => t.StartTime).ToListAsync();
         var types = await db.AppointmentTypes.ToDictionaryAsync(t => t.Name);
         var patientIds = await db.Patients.Where(p => p.MergedIntoPatientId == null).Select(p => p.Id).ToListAsync();
-        var creator = await db.Users.Where(u => u.UserName == "frontdesk").Select(u => u.Id).FirstAsync();
+        var creator = await db.Users.Where(u => u.UserName == profile.DeskUser).Select(u => u.Id).FirstAsync();
         var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, Toronto);
         var isToday = DateOnly.FromDateTime(nowLocal) == day;
         var weekend = day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;

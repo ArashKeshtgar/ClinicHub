@@ -1613,42 +1613,6 @@ namespace ClinicHub.Api.Data.Migrations
                     b.ToTable("RemittanceItem", "billing");
                 });
 
-            modelBuilder.Entity("ClinicHub.Api.Data.Role", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(300)
-                        .HasColumnType("nvarchar(300)");
-
-                    b.Property<bool>("IsSystem")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("Permissions")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<bool>("RequireTwoFactor")
-                        .HasColumnType("bit");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name")
-                        .IsUnique();
-
-                    b.ToTable("Role", "sec");
-                });
-
             modelBuilder.Entity("ClinicHub.Api.Data.Room", b =>
                 {
                     b.Property<int>("Id")
@@ -1764,47 +1728,6 @@ namespace ClinicHub.Api.Data.Migrations
 
                             t.HasCheckConstraint("CK_ScheduleTemplate_Slot", "SlotMinutes BETWEEN 5 AND 120");
                         });
-                });
-
-            modelBuilder.Entity("ClinicHub.Api.Data.SecurityEvent", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<int?>("ActorUserId")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("AtUtc")
-                        .HasColumnType("datetime2(3)");
-
-                    b.Property<string>("Detail")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("IpAddress")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<int?>("TargetUserId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ActorUserId");
-
-                    b.HasIndex("AtUtc");
-
-                    b.HasIndex("TargetUserId");
-
-                    b.ToTable("SecurityEvent", "sec");
                 });
 
             modelBuilder.Entity("ClinicHub.Api.Data.ServiceRequest", b =>
@@ -1929,57 +1852,22 @@ namespace ClinicHub.Api.Data.Migrations
             modelBuilder.Entity("ClinicHub.Api.Data.User", b =>
                 {
                     b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("datetime2(3)");
+                    b.Property<string>("Credentials")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
-                    b.Property<int>("FailedLoginCount")
-                        .HasColumnType("int");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
-                    b.Property<DateTime?>("LastLoginUtc")
+                    b.Property<DateTime>("SyncedUtc")
                         .HasColumnType("datetime2(3)");
-
-                    b.Property<string>("Locations")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTime?>("LockoutEndUtc")
-                        .HasColumnType("datetime2(3)");
-
-                    b.Property<bool>("MustChangePassword")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("PasswordHash")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("SecurityStamp")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<bool>("TwoFactorEnabled")
-                        .HasColumnType("bit");
-
-                    b.Property<long>("TwoFactorLastStep")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("TwoFactorSecret")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("UserName")
                         .IsRequired()
@@ -1992,21 +1880,6 @@ namespace ClinicHub.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("User", "sec");
-                });
-
-            modelBuilder.Entity("ClinicHub.Api.Data.UserRole", b =>
-                {
-                    b.Property<int>("UserId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("RoleId")
-                        .HasColumnType("int");
-
-                    b.HasKey("UserId", "RoleId");
-
-                    b.HasIndex("RoleId");
-
-                    b.ToTable("UserRole", "sec");
                 });
 
             modelBuilder.Entity("ClinicHub.Api.Data.VitalSigns", b =>
@@ -2551,17 +2424,6 @@ namespace ClinicHub.Api.Data.Migrations
                     b.Navigation("Provider");
                 });
 
-            modelBuilder.Entity("ClinicHub.Api.Data.SecurityEvent", b =>
-                {
-                    b.HasOne("ClinicHub.Api.Data.User", null)
-                        .WithMany()
-                        .HasForeignKey("ActorUserId");
-
-                    b.HasOne("ClinicHub.Api.Data.User", null)
-                        .WithMany()
-                        .HasForeignKey("TargetUserId");
-                });
-
             modelBuilder.Entity("ClinicHub.Api.Data.ServiceRequest", b =>
                 {
                     b.HasOne("ClinicHub.Api.Data.Encounter", "Encounter")
@@ -2587,25 +2449,6 @@ namespace ClinicHub.Api.Data.Migrations
                     b.Navigation("Patient");
 
                     b.Navigation("RequesterProvider");
-                });
-
-            modelBuilder.Entity("ClinicHub.Api.Data.UserRole", b =>
-                {
-                    b.HasOne("ClinicHub.Api.Data.Role", "Role")
-                        .WithMany("Users")
-                        .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("ClinicHub.Api.Data.User", "User")
-                        .WithMany("Roles")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Role");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("ClinicHub.Api.Data.VitalSigns", b =>
@@ -2675,19 +2518,9 @@ namespace ClinicHub.Api.Data.Migrations
                     b.Navigation("Items");
                 });
 
-            modelBuilder.Entity("ClinicHub.Api.Data.Role", b =>
-                {
-                    b.Navigation("Users");
-                });
-
             modelBuilder.Entity("ClinicHub.Api.Data.ServiceRequest", b =>
                 {
                     b.Navigation("Results");
-                });
-
-            modelBuilder.Entity("ClinicHub.Api.Data.User", b =>
-                {
-                    b.Navigation("Roles");
                 });
 #pragma warning restore 612, 618
         }

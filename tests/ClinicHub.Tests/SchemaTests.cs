@@ -172,7 +172,7 @@ public class SchemaTests(TestDatabase database) : IClassFixture<TestDatabase>
     {
         await using var db = database.NewContext();
         var suffix = Guid.NewGuid().ToString("N")[..8];
-        var user = new User { UserName = $"u{suffix}", DisplayName = "Test", CreatedUtc = Now };
+        var user = new User { Id = Random.Shared.Next(1_000_000, int.MaxValue), UserName = $"u{suffix}", DisplayName = "Test", SyncedUtc = Now };
         var location = new Location { Name = "Test clinic", AddressLine1 = "1 Test St", City = "Toronto", PostalCode = "M5V 2T6" };
         var provider = new Provider { FirstName = "Avery", LastName = "Test" };
         var type = new AppointmentType { Name = $"Visit {suffix}", DurationMinutes = 15 };

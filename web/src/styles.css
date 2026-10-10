@@ -273,3 +273,37 @@ pre.file { margin: 0; padding: .75rem; background: #0f1b30; color: #dbe7ff; bord
 .upload { position: relative; overflow: hidden; }
 .upload input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 @media (max-width: 1200px) { .ra { grid-template-columns: 1fr; } }
+
+/* clinics, accounts, people */
+.clinic-switch { width: auto; min-height: 36px; padding: .2rem .6rem; font-weight: 700; color: var(--primary-strong); background: var(--primary-soft); border-color: transparent; max-width: 280px; }
+.clinic-name { font-weight: 700; color: var(--primary-strong); background: var(--primary-soft); padding: .35rem .7rem; border-radius: 10px; white-space: nowrap; }
+.account-link { text-decoration: none; color: inherit; padding: .3rem .5rem; border-radius: 8px; }
+.account-link:hover, .account-link.active { background: var(--surface-2); }
+.account-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; align-items: start; }
+.account-card { display: grid; gap: .7rem; }
+.two-factor ol { margin: 0; padding-left: 1.2rem; display: grid; gap: .8rem; }
+.qr-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: .5rem; }
+.qr-row img { border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.code-row { display: flex; gap: .5rem; margin-top: .5rem; }
+.code-row input { max-width: 10rem; }
+.admin-layout { display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 1rem; align-items: start; }
+.editor { display: grid; gap: .8rem; position: sticky; top: 4.5rem; max-height: calc(100vh - 6rem); overflow: auto; }
+.editor hr { border: 0; border-top: 1px solid var(--border); margin: .2rem 0; width: 100%; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+fieldset.checks { border: 1px solid var(--border); border-radius: 10px; padding: .5rem .8rem .7rem; display: grid; gap: .35rem; margin: 0; }
+fieldset.checks legend { font-weight: 700; font-size: .9rem; padding: 0 .3rem; }
+label.check { flex-direction: row; align-items: flex-start; gap: .5rem; font-weight: 400; color: var(--text); }
+label.check input { width: auto; min-height: 0; margin-top: .25rem; }
+.badge-row { display: flex; gap: .3rem; flex-wrap: wrap; }
+table.data tr.selected { background: var(--primary-soft); }
+.role-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .6rem; }
+.role-card { display: grid; gap: .3rem; text-align: left; justify-items: start; white-space: normal; font-weight: 400; padding: .8rem 1rem; }
+.role-card.on { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.role-title { display: flex; justify-content: space-between; gap: .5rem; width: 100%; }
+@media (max-width: 1200px) { .admin-layout { grid-template-columns: 1fr; } .editor { position: static; max-height: none; } }
+@media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } .clinic-switch { max-width: 100%; } }
+@media (max-width: 1100px) {
+  .topbar { flex-wrap: wrap; row-gap: .4rem; }
+  .topbar nav { order: 3; flex-basis: 100%; overflow-x: auto; }
+  .topbar .who { margin-left: auto; }
+}

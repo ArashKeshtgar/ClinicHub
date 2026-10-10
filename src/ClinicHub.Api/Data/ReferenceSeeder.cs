@@ -1,11 +1,10 @@
-using ClinicHub.Api.Auth;
 using Microsoft.EntityFrameworkCore;
 
 namespace ClinicHub.Api.Data;
 
 /// <summary>
 /// Lists every installation needs. Adds what is missing and never overwrites, because a clinic edits
-/// its own price list and roles. OHIP codes here are a small ILLUSTRATIVE subset with approximate fees:
+/// its own price list. OHIP codes here are a small ILLUSTRATIVE subset with approximate fees:
 /// a real installation imports the current Schedule of Benefits and diagnostic code list.
 /// </summary>
 public static class ReferenceSeeder
@@ -53,11 +52,6 @@ public static class ReferenceSeeder
             T("ECG", 15, "slate", false),
         ]);
 
-        await AddMissing(db, db.Roles, r => r.Name,
-            SystemRoles.Defaults.Select(d => new Role { Name = d.Name, Description = d.Description, Permissions = Permissions.Format(d.Permissions), IsSystem = true }).ToArray());
-        var admin = await db.Roles.SingleAsync(r => r.Name == SystemRoles.Administrator);
-        admin.Permissions = Permissions.Format(Permissions.All); // a new version's permissions reach it
-        await db.SaveChangesAsync();
     }
 
     private static Province P(string code, string name, bool reciprocal) => new() { Code = code, Name = name, ReciprocalBilling = reciprocal };

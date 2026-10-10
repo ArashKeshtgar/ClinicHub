@@ -53,9 +53,6 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
     public DbSet<Payment> Payments => Set<Payment>();
 
     public DbSet<User> Users => Set<User>();
-    public DbSet<Role> Roles => Set<Role>();
-    public DbSet<UserRole> UserRoles => Set<UserRole>();
-    public DbSet<SecurityEvent> SecurityEvents => Set<SecurityEvent>();
     public DbSet<PatientAccessLog> PatientAccessLog => Set<PatientAccessLog>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder b)
@@ -86,7 +83,7 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
     }
 
     /// <summary>Rows that are part of their parent and go with it (template edits, draft lines).</summary>
-    private static readonly HashSet<Type> CascadingChildren = [typeof(UserRole), typeof(InvoiceLine), typeof(Room)];
+    private static readonly HashSet<Type> CascadingChildren = [typeof(InvoiceLine), typeof(Room)];
 
     private static void Reference(ModelBuilder b)
     {
@@ -362,24 +359,9 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
         b.Entity<User>(e =>
         {
             e.ToTable("User", "sec");
+            // The catalog account's id, not a new one.
+            e.Property(x => x.Id).ValueGeneratedNever();
             e.HasIndex(x => x.UserName).IsUnique();
-        });
-        b.Entity<Role>(e =>
-        {
-            e.ToTable("Role", "sec");
-            e.HasIndex(x => x.Name).IsUnique();
-        });
-        b.Entity<UserRole>(e =>
-        {
-            e.ToTable("UserRole", "sec");
-            e.HasKey(x => new { x.UserId, x.RoleId });
-        });
-        b.Entity<SecurityEvent>(e =>
-        {
-            e.ToTable("SecurityEvent", "sec");
-            e.HasIndex(x => x.AtUtc);
-            e.HasOne<User>().WithMany().HasForeignKey(x => x.ActorUserId);
-            e.HasOne<User>().WithMany().HasForeignKey(x => x.TargetUserId);
         });
         b.Entity<PatientAccessLog>(e =>
         {

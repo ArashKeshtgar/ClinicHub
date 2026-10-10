@@ -1,9 +1,9 @@
 using System.Security.Claims;
-using Claim = System.Security.Claims.Claim;
-using ClinicHub.Api.Data;
+using ClinicHub.Api.Catalog;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
+using Claim = System.Security.Claims.Claim;
 
 namespace ClinicHub.Api.Auth;
 
@@ -12,24 +12,46 @@ public static class AppClaims
     public const string Stamp = "stamp";
     public const string Permission = "perm";
     public const string ProviderId = "provider";
+
+    /// <summary>The clinic chosen after sign-in. Its database serves the request.</summary>
+    public const string Clinic = "clinic";
+
+    /// <summary>"change-password" or "setup-two-factor": the user must do this before anything else.</summary>
+    public const string Pending = "pending";
 }
 
-/// <summary>What a user may do, from their roles. Administrator always has everything.</summary>
-public record Access(string[] Roles, string[] Permissions)
+public static class PendingActions
 {
-    public static Access For(User user)
+    public const string ChangePassword = "change-password";
+    public const string SetupTwoFactor = "setup-two-factor";
+}
+
+/// <summary>What an account may do in one clinic, from its roles there. Administrator always has everything.</summary>
+public record Access(string[] Roles, string[] Permissions, bool TwoFactorRequired, string? Pending)
+{
+    public static Access For(Account account, int? clinicId)
     {
-        var roles = user.Roles.Select(ur => ur.Role).ToList();
+        var roles = account.Roles.Select(ar => ar.Role).Where(r => clinicId != null && r.ClinicId == clinicId).ToList();
         var permissions = roles.Any(r => r.IsSystem && r.Name == SystemRoles.Administrator)
             ? Auth.Permissions.All
             : Auth.Permissions.All.Where(p => roles.Any(r => Auth.Permissions.Parse(r.Permissions).Contains(p))).ToArray();
-        return new Access(roles.Select(r => r.Name).OrderBy(n => n).ToArray(), permissions);
+        // A role anywhere that requires two-factor protects the whole account: it is one sign-in for every clinic.
+        var twoFactorRequired = account.Roles.Any(ar => ar.Role.RequireTwoFactor);
+        var pending = account.MustChangePassword ? PendingActions.ChangePassword
+            : twoFactorRequired && !account.TwoFactorEnabled ? PendingActions.SetupTwoFactor
+            : null;
+        return new Access(roles.Select(r => r.Name).OrderBy(n => n).ToArray(), pending is null ? permissions : [], twoFactorRequired, pending);
     }
+
+    /// <summary>Clinics where the account holds at least one role.</summary>
+    public static IEnumerable<Clinic> Clinics(Account account) =>
+        account.Roles.Select(ar => ar.Role.Clinic).Where(c => c.IsActive).DistinctBy(c => c.Id).OrderBy(c => c.Name);
 }
 
 /// <summary>
-/// Cookie sign-in as in ClinicReport: the cookie holds the user id and a security stamp; roles and
-/// permissions are re-read on every request, so changes apply at once and a new stamp ends sessions.
+/// Cookie sign-in. The cookie holds the account id, its security stamp and the chosen clinic; roles,
+/// permissions and the provider link are re-read on every request, so changes apply at once and a new
+/// stamp ends every session.
 /// </summary>
 public static class AuthSetup
 {
@@ -55,52 +77,72 @@ public static class AuthSetup
             .SetFallbackPolicy(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
         foreach (var p in Permissions.All)
             auth.AddPolicy(p, policy => policy.RequireClaim(AppClaims.Permission, p));
+        auth.AddPolicy(PlatformAdmin, policy => policy.RequireClaim(PlatformAdmin, "true"));
     }
+
+    public const string PlatformAdmin = "platform-admin";
+
+    public static IQueryable<Account> WithRoles(this IQueryable<Account> accounts) =>
+        accounts.Include(a => a.Roles).ThenInclude(ar => ar.Role).ThenInclude(r => r.Clinic);
 
     private static async Task LoadCurrentAccess(CookieValidatePrincipalContext ctx)
     {
         var id = ctx.Principal?.UserId();
         var stamp = ctx.Principal?.FindFirstValue(AppClaims.Stamp);
-        var db = ctx.HttpContext.RequestServices.GetRequiredService<ClinicHubDbContext>();
-        var user = id is null ? null : await db.Users.AsNoTracking()
-            .Include(u => u.Roles).ThenInclude(ur => ur.Role)
-            .SingleOrDefaultAsync(u => u.Id == id);
-        if (user is null || !user.IsActive || user.SecurityStamp != stamp)
+        var catalog = ctx.HttpContext.RequestServices.GetRequiredService<CatalogDbContext>();
+        var account = id is null ? null : await catalog.Accounts.AsNoTracking().WithRoles().SingleOrDefaultAsync(a => a.Id == id);
+        if (account is null || !account.IsActive || account.SecurityStamp != stamp)
         {
             ctx.RejectPrincipal();
             await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return;
         }
-        var providerId = await db.Providers.Where(p => p.UserId == user.Id).Select(p => (int?)p.Id).FirstOrDefaultAsync();
-        ctx.ReplacePrincipal(CreatePrincipal(user, Access.For(user), providerId));
+        // A clinic the person no longer belongs to (or that was closed) is dropped; they choose again.
+        var clinicId = ctx.Principal!.ClinicId();
+        if (clinicId is not null && !Access.Clinics(account).Any(c => c.Id == clinicId))
+            clinicId = null;
+        int? providerId = null;
+        if (clinicId is not null)
+        {
+            await using var clinicDb = await ctx.HttpContext.RequestServices.GetRequiredService<ClinicDatabases>().OpenAsync(clinicId.Value);
+            providerId = await clinicDb.Providers.Where(p => p.UserId == account.Id).Select(p => (int?)p.Id).FirstOrDefaultAsync();
+        }
+        ctx.ReplacePrincipal(CreatePrincipal(account, clinicId, providerId));
     }
 
-    public static ClaimsPrincipal CreatePrincipal(User user, Access? access = null, int? providerId = null)
+    public static ClaimsPrincipal CreatePrincipal(Account account, int? clinicId, int? providerId = null)
     {
+        var access = Access.For(account, clinicId);
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new(ClaimTypes.Name, user.DisplayName),
-            new(AppClaims.Stamp, user.SecurityStamp),
+            new(ClaimTypes.NameIdentifier, account.Id.ToString()),
+            new(ClaimTypes.Name, account.DisplayName),
+            new(AppClaims.Stamp, account.SecurityStamp),
         };
-        if (access is not null)
-        {
-            claims.AddRange(access.Roles.Select(r => new Claim(ClaimTypes.Role, r)));
-            claims.AddRange(access.Permissions.Select(p => new Claim(AppClaims.Permission, p)));
-        }
+        if (clinicId is not null)
+            claims.Add(new Claim(AppClaims.Clinic, clinicId.Value.ToString()));
+        if (access.Pending is not null)
+            claims.Add(new Claim(AppClaims.Pending, access.Pending));
+        claims.AddRange(access.Roles.Select(r => new Claim(ClaimTypes.Role, r)));
+        claims.AddRange(access.Permissions.Select(p => new Claim(AppClaims.Permission, p)));
+        if (account.IsPlatformAdmin && access.Pending is null)
+            claims.Add(new Claim(PlatformAdmin, "true"));
         if (providerId is not null)
             claims.Add(new Claim(AppClaims.ProviderId, providerId.Value.ToString()));
         return new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
     }
 
-    public static Task SignInAsync(HttpContext http, User user) =>
-        http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, CreatePrincipal(user));
+    public static Task SignInAsync(HttpContext http, Account account, int? clinicId) =>
+        http.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, CreatePrincipal(account, clinicId));
 
     public static int? UserId(this ClaimsPrincipal user) =>
         int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
 
     public static int RequiredUserId(this ClaimsPrincipal user) =>
         user.UserId() ?? throw new InvalidOperationException("No signed-in user.");
+
+    public static int RequiredClinicId(this ClaimsPrincipal user) =>
+        user.ClinicId() ?? throw new NoClinicException();
 
     public static bool Can(this ClaimsPrincipal user, string permission) => user.HasClaim(AppClaims.Permission, permission);
 

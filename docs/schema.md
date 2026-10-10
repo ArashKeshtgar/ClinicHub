@@ -1,6 +1,7 @@
 # ClinicHub database schema
 
-SQL Server, created by EF Core migrations (`src/ClinicHub.Api/Data`). One database per clinic. Tables are
+SQL Server, created by EF Core migrations (`src/ClinicHub.Api/Data`). One database per clinic; accounts, roles
+and the clinic list are in the separate catalog database (`src/ClinicHub.Api/Catalog`, see [architecture](architecture.md)). Tables are
 grouped into schemas by concern; PHI (names, health card, contact details) lives only in `people`.
 Every other area refers to a patient by `PatientId`.
 
@@ -13,7 +14,7 @@ Every other area refers to a patient by `PatientId`.
 | `care` | Eligibility checks, encounters, vitals, notes, diagnoses, billable services, referrals | `OJ_PRV`, `OJ_UseActions`, `Tbl_Teryaj`, `tbl_moshavereh` |
 | `orders` | Service requests to LabFlow / ClinicReport and the results that come back; integration outbox/inbox | paraclinic requests, SEPAS queues |
 | `billing` | OHIP claims and batches, remittance advice, uninsured invoices and payments | `cashok`, `BillSafe`, `Pregive`, insurer lists |
-| `sec` | Users, roles, permissions, security events, patient access log | `Users`, `Access`, `Tbl_Users_LoginLog` |
+| `sec` | The clinic's copy of its staff (no credentials) and the PHIPA patient access log; accounts, roles and sign-ins are in the catalog | `Users`, `Access`, `Tbl_Users_LoginLog` |
 
 ## Conventions
 
