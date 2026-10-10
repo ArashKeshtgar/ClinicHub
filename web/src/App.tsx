@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router'
-import { api, ApiError, type Me, type Settings } from './api'
+import { api, ApiError, can, type Me, type Settings } from './api'
+import EncounterPage from './pages/EncounterPage'
 import FrontDesk from './pages/FrontDesk'
+import Visits from './pages/Visits'
 
 type Session = { me: Me; settings: Settings }
 const SessionContext = createContext<Session | null>(null)
@@ -36,7 +38,8 @@ export default function App() {
       <header className="topbar">
         <div className="brand"><Logo /> ClinicHub</div>
         <nav>
-          <NavLink to="/" end>Front desk</NavLink>
+          {can(me, 'schedule.view') && <NavLink to="/frontdesk">Front desk</NavLink>}
+          {can(me, 'encounters.view') && <NavLink to="/visits">Visits</NavLink>}
         </nav>
         <div className="who">
           <span><span className="name">{me.displayName}</span> <span className="muted">· {me.roles.join(', ')}</span></span>
@@ -46,7 +49,11 @@ export default function App() {
       {settings.demo && <div className="demo-strip">Demo clinic with synthetic patients. Do not enter real patient information.</div>}
       <main className="page">
         <Routes>
-          <Route path="/" element={<FrontDesk />} />
+          {/* Clinicians who sign start on their own worklist; everyone else on the front desk board. */}
+          <Route path="/" element={<Navigate to={can(me, 'encounters.sign') && me.providerId ? '/visits' : '/frontdesk'} replace />} />
+          <Route path="/frontdesk" element={<FrontDesk />} />
+          <Route path="/visits" element={<Visits />} />
+          <Route path="/visits/:id" element={<EncounterPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

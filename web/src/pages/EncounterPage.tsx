@@ -1,0 +1,405 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router'
+import { ApiError, can, encounters, localDateTime, localTime, money, type Codes, type Coding, type Encounter, type Soap, type Vitals, type VitalsInput } from '../api'
+import { useSession } from '../App'
+
+const PROGRAM: Record<string, string> = { HCP: 'OHIP', RMB: 'Reciprocal (other province)', WCB: 'WSIB', Uninsured: 'Uninsured · patient pays' }
+const SOAP: [keyof Soap, string, string][] = [
+  ['subjective', 'Subjective', 'History in the patient’s words: complaint, onset, symptoms, medications, allergies'],
+  ['objective', 'Objective', 'Examination findings and point-of-care results'],
+  ['assessment', 'Assessment', 'Working diagnosis and differential'],
+  ['plan', 'Plan', 'Treatment, prescriptions, orders, referrals, follow-up'],
+]
+
+/** One visit, as the clinician works through it: vitals, the SOAP note, codes, signature. */
+export default function EncounterPage() {
+  const id = Number(useParams().id)
+  const { me } = useSession()
+  const [enc, setEnc] = useState<Encounter | null>(null)
+  const [codes, setCodes] = useState<Codes | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    encounters.get(id).then(setEnc).catch(e => setError(e.message))
+    encounters.codes().then(setCodes)
+  }, [id])
+
+  const run = async (f: () => Promise<Encounter>) => {
+    setError(null)
+    setBusy(true)
+    try {
+      setEnc(await f())
+    } catch (e) {
+      setError(e instanceof ApiError ? [e.message, ...Object.values(e.fieldErrors).flat()].filter((m, i, a) => a.indexOf(m) === i && m !== 'One or more validation errors occurred.').join(' ') : 'Not saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const note = useNoteAutosave(id, enc)
+
+  if (!enc) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>
+
+  const open = enc.status === 'Open'
+  const writeNote = open && can(me, 'encounters.document')
+  const code = open && can(me, 'encounters.sign')
+  const mine = me.providerId === enc.provider.id
+  const p = enc.patient
+
+  return (
+    <>
+      <Link to="/visits" className="back">← Visits</Link>
+      <section className={`card banner ${enc.status}`}>
+        <div className="banner-who">
+          <h1>{p.name}</h1>
+          <div className="muted">
+            {p.age} y · {p.sex} · born {p.dateOfBirth} · <span className="mono">{p.mrn}</span>
+            {p.healthCard && <> · health card <span className="mono">{p.healthCard}</span></>}
+          </div>
+          <div className="tags">
+            <span className={`badge ${enc.paymentProgram === 'HCP' ? 'ohip' : enc.paymentProgram === 'Uninsured' ? 'none' : 'rmb'}`} title={enc.eligibility?.message}>{PROGRAM[enc.paymentProgram] ?? enc.paymentProgram}</span>
+            <span className="badge">{enc.kind === 'WalkIn' ? 'Walk-in' : enc.kind}</span>
+            {enc.reasonForVisit && <span className="badge">Reason: {enc.reasonForVisit}</span>}
+          </div>
+        </div>
+        <div className="visit-meta">
+          <div className="small muted">{enc.provider.name} · checked in {localTime(enc.checkInUtc)}{enc.room ? ` · ${enc.room}` : ''}</div>
+          <div className="visit-actions">
+            {open && enc.appointmentStatus === 'Roomed' && can(me, 'encounters.document') &&
+              <button className="primary" disabled={busy} onClick={() => run(() => encounters.start(id))}>Start visit</button>}
+            {open && enc.appointmentStatus === 'WithProvider' && can(me, 'encounters.document') &&
+              <button disabled={busy} onClick={() => run(() => encounters.finish(id))}>Patient left</button>}
+            <span className={`sign-state ${enc.status}`}>{enc.status === 'Signed' ? `Signed ${localDateTime(enc.signedUtc!)} · ${enc.signedBy}` : enc.status}</span>
+          </div>
+        </div>
+      </section>
+
+      {error && <p className="error" role="alert">{error}</p>}
+
+      <div className="chart">
+        <div className="chart-main">
+          <VitalsCard enc={enc} editable={writeNote} busy={busy} onAdd={v => run(() => encounters.addVitals(id, v))} />
+
+          <section className="card">
+            <div className="panel-head">
+              <h2>Note</h2>
+              <span className="muted small" role="status">{open ? note.status : enc.note ? `Last edited by ${enc.note.author}` : ''}</span>
+            </div>
+            <div className="soap">
+              {SOAP.map(([key, label, hint]) => (
+                <label key={key}>
+                  <span>{label}{(key === 'assessment' || key === 'plan') && open && <span className="req" title="Needed to sign"> *</span>}</span>
+                  {writeNote
+                    ? <textarea value={note.soap[key] ?? ''} placeholder={hint} rows={key === 'subjective' ? 4 : 3}
+                        onChange={e => note.change(key, e.target.value)} onBlur={note.flush} />
+                    : <div className="note-text">{enc.note?.[key] || <span className="muted">—</span>}</div>}
+                </label>
+              ))}
+            </div>
+            {enc.status === 'Signed' && <Addenda enc={enc} canAdd={can(me, 'encounters.document')} busy={busy} onAdd={t => run(() => encounters.addendum(id, t))} />}
+          </section>
+        </div>
+
+        <aside className="chart-side">
+          {codes && <CodingCard enc={enc} codes={codes} editable={code} busy={busy} onSave={c => run(() => encounters.saveCoding(id, c))} />}
+
+          {open && (
+            <section className="card">
+              <div className="panel-head"><h2>Sign</h2></div>
+              <div className="pad">
+                {enc.readyToSign.length > 0
+                  ? <ul className="todo">{enc.readyToSign.map(m => <li key={m}>{m}</li>)}</ul>
+                  : <p className="result ok" style={{ margin: 0 }}>Ready to sign. The note locks and the claim goes to billing.</p>}
+                {!mine && <p className="muted small">Only {enc.provider.name} can sign this visit.</p>}
+                <button className="primary wide" disabled={busy || !mine || enc.readyToSign.length > 0 || !can(me, 'encounters.sign')}
+                  onClick={async () => { await note.flush(); await run(() => encounters.sign(id)) }}>Sign visit</button>
+              </div>
+            </section>
+          )}
+
+          {enc.billing && (
+            <section className="card">
+              <div className="panel-head"><h2>Billing</h2></div>
+              <dl className="facts pad">
+                {enc.billing.claimNumber && <><dt>OHIP claim</dt><dd><span className="mono">{enc.billing.claimNumber}</span> · {money(enc.billing.claimAmount!)} · {enc.billing.claimStatus}</dd></>}
+                {enc.billing.invoiceNumber && <><dt>Invoice</dt><dd><span className="mono">{enc.billing.invoiceNumber}</span> · {money(enc.billing.invoiceTotal!)} owed</dd></>}
+                {!enc.billing.claimNumber && !enc.billing.invoiceNumber && <dd className="muted">Nothing billed.</dd>}
+              </dl>
+            </section>
+          )}
+
+          <section className="card">
+            <div className="panel-head"><h2>Earlier visits</h2><span className="muted">{enc.history.length}</span></div>
+            <ul className="history">
+              {enc.history.map(h => (
+                <li key={h.id}>
+                  <Link to={`/visits/${h.id}`}>{localDateTime(h.checkInUtc)}</Link> <span className="muted small">· {h.provider}{h.status === 'Open' ? ' · unsigned' : ''}</span>
+                  {h.diagnosis && <div className="small"><strong>{h.diagnosis}</strong></div>}
+                  {h.assessment && <div className="small muted clamp">{h.assessment}</div>}
+                </li>
+              ))}
+              {enc.history.length === 0 && <li className="muted small">First visit at this clinic.</li>}
+            </ul>
+          </section>
+        </aside>
+      </div>
+    </>
+  )
+}
+
+/** Keeps the note in local state and saves it 0.8 s after typing stops, on leaving a field, and before signing. */
+function useNoteAutosave(id: number, enc: Encounter | null) {
+  const [soap, setSoap] = useState<Soap>({})
+  const [status, setStatus] = useState('')
+  const dirty = useRef(false)
+  const latest = useRef<Soap>({})
+  const timer = useRef<number | undefined>(undefined)
+  const loadedFor = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!enc || loadedFor.current === enc.id) return
+    loadedFor.current = enc.id
+    const s = { subjective: enc.note?.subjective, objective: enc.note?.objective, assessment: enc.note?.assessment, plan: enc.note?.plan }
+    latest.current = s
+    setSoap(s)
+    setStatus(enc.note ? `Saved ${localTime(enc.note.updatedUtc)}` : '')
+  }, [enc])
+
+  const inFlight = useRef<Promise<void>>(Promise.resolve())
+
+  // One save at a time: a blur and the typing timer can both fire, and each waits for the one before.
+  const flush = useCallback(() => {
+    window.clearTimeout(timer.current)
+    inFlight.current = inFlight.current.then(async () => {
+      if (!dirty.current) return
+      dirty.current = false
+      setStatus('Saving…')
+      try {
+        const { updatedUtc } = await encounters.saveNote(id, latest.current)
+        setStatus(dirty.current ? 'Editing…' : `Saved ${localTime(updatedUtc)}`)
+      } catch (e) {
+        dirty.current = true
+        setStatus(e instanceof ApiError ? `Not saved: ${e.message}` : 'Not saved, retrying when you type again.')
+      }
+    })
+    return inFlight.current
+  }, [id])
+
+  const change = (key: keyof Soap, value: string) => {
+    latest.current = { ...latest.current, [key]: value }
+    setSoap(latest.current)
+    dirty.current = true
+    setStatus('Editing…')
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(flush, 800)
+  }
+
+  // Leaving the page saves what was typed.
+  useEffect(() => () => { if (dirty.current) encounters.saveNote(id, latest.current) }, [id])
+
+  return { soap, status, change, flush }
+}
+
+const abnormal = (v: Vitals) => ({
+  bp: (v.systolicMmHg ?? 0) >= 140 || (v.diastolicMmHg ?? 0) >= 90 || (v.systolicMmHg !== undefined && v.systolicMmHg < 90),
+  hr: v.heartRate !== undefined && (v.heartRate > 100 || v.heartRate < 50),
+  rr: v.respiratoryRate !== undefined && (v.respiratoryRate > 20 || v.respiratoryRate < 10),
+  temp: (v.temperatureC ?? 0) >= 38,
+  spo2: v.spO2 !== undefined && v.spO2 < 94,
+})
+
+function VitalsCard({ enc, editable, busy, onAdd }: { enc: Encounter; editable: boolean; busy: boolean; onAdd: (v: VitalsInput) => Promise<void> }) {
+  const [form, setForm] = useState<Record<string, string>>({})
+  const [adding, setAdding] = useState(false)
+  const last = enc.vitals[0]
+  const flag = last ? abnormal(last) : null
+  const fields: [keyof VitalsInput, string, string][] = [
+    ['systolicMmHg', 'Systolic', 'mmHg'], ['diastolicMmHg', 'Diastolic', 'mmHg'], ['heartRate', 'Pulse', '/min'], ['respiratoryRate', 'Resp.', '/min'],
+    ['temperatureC', 'Temp.', '°C'], ['spO2', 'SpO₂', '%'], ['weightKg', 'Weight', 'kg'], ['heightCm', 'Height', 'cm'],
+  ]
+
+  const save = async () => {
+    const v: VitalsInput = {}
+    for (const [k] of fields) if (form[k]?.trim()) v[k] = Number(form[k]) as never
+    await onAdd(v)
+    setForm({})
+    setAdding(false)
+  }
+
+  return (
+    <section className="card">
+      <div className="panel-head">
+        <h2>Vitals</h2>
+        {last && <span className="muted small">{localTime(last.takenUtc)} · {last.takenBy}</span>}
+      </div>
+      {last ? (
+        <div className="vitals">
+          <Tile label="BP" value={last.systolicMmHg ? `${last.systolicMmHg}/${last.diastolicMmHg}` : '—'} unit="mmHg" warn={flag!.bp} />
+          <Tile label="Pulse" value={last.heartRate ?? '—'} unit="/min" warn={flag!.hr} />
+          <Tile label="Resp." value={last.respiratoryRate ?? '—'} unit="/min" warn={flag!.rr} />
+          <Tile label="Temp." value={last.temperatureC?.toFixed(1) ?? '—'} unit="°C" warn={flag!.temp} />
+          <Tile label="SpO₂" value={last.spO2 ?? '—'} unit="%" warn={flag!.spo2} />
+          <Tile label="Weight" value={last.weightKg ?? '—'} unit="kg" />
+          <Tile label="BMI" value={last.bmi ?? '—'} unit={last.heightCm ? `${last.heightCm} cm` : ''} />
+        </div>
+      ) : <p className="muted pad" style={{ margin: 0 }}>No vitals yet{enc.kind === 'Virtual' ? ' (virtual visit)' : ''}.</p>}
+      {enc.vitals.length > 1 && (
+        <details className="pad earlier">
+          <summary className="small">{enc.vitals.length - 1} earlier set{enc.vitals.length > 2 ? 's' : ''} this visit</summary>
+          <ul className="small">
+            {enc.vitals.slice(1).map(v => (
+              <li key={v.id}>{localTime(v.takenUtc)}: {v.systolicMmHg ? `BP ${v.systolicMmHg}/${v.diastolicMmHg}, ` : ''}{v.heartRate ? `P ${v.heartRate}, ` : ''}{v.temperatureC ? `T ${v.temperatureC}, ` : ''}{v.spO2 ? `SpO₂ ${v.spO2}%` : ''} · {v.takenBy}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {editable && (adding ? (
+        <form className="vitals-form pad" onSubmit={e => { e.preventDefault(); save() }}>
+          {fields.map(([k, label, unit]) => (
+            <label key={k}>{label} <span className="muted small">{unit}</span>
+              <input inputMode="decimal" value={form[k] ?? ''} onChange={e => setForm({ ...form, [k]: e.target.value.replace(/[^0-9.]/g, '') })} />
+            </label>
+          ))}
+          <div className="dialog-actions" style={{ gridColumn: '1 / -1' }}>
+            <button type="button" onClick={() => setAdding(false)}>Cancel</button>
+            <button className="primary" disabled={busy}>Save vitals</button>
+          </div>
+        </form>
+      ) : (
+        <div className="pad" style={{ paddingTop: 0 }}><button className="small" onClick={() => setAdding(true)}>{last ? 'Record again' : 'Record vitals'}</button></div>
+      ))}
+    </section>
+  )
+}
+
+function Tile({ label, value, unit, warn }: { label: string; value: string | number; unit: string; warn?: boolean }) {
+  return (
+    <div className={`tile ${warn ? 'warn' : ''}`}>
+      <span className="label">{label}</span>
+      <span className="value">{value}</span>
+      <span className="unit">{unit}</span>
+    </div>
+  )
+}
+
+function CodingCard({ enc, codes, editable, busy, onSave }: { enc: Encounter; codes: Codes; editable: boolean; busy: boolean; onSave: (c: Coding) => Promise<void> }) {
+  const [dxQuery, setDxQuery] = useState('')
+  const [service, setService] = useState('')
+  const insuredAllowed = enc.paymentProgram !== 'Uninsured'
+
+  const current = (): Coding => ({
+    diagnoses: enc.diagnoses.map(d => ({ code: d.code, isPrimary: d.isPrimary })),
+    services: enc.services.map(s => ({ feeCode: s.feeCode, uninsuredServiceId: s.uninsuredServiceId, units: s.units })),
+  })
+  const save = (f: (c: Coding) => Coding) => onSave(f(current()))
+
+  const dxMatches = useMemo(() => {
+    const q = dxQuery.trim().toLowerCase()
+    if (!q) return []
+    return codes.diagnostic.filter(d => !enc.diagnoses.some(x => x.code === d.code) && (d.code.startsWith(q) || d.description.toLowerCase().includes(q))).slice(0, 8)
+  }, [dxQuery, codes, enc.diagnoses])
+
+  const addService = (value: string) => {
+    if (!value) return
+    const [kind, key] = value.split(':')
+    save(c => ({ ...c, services: [...c.services, kind === 'fee' ? { feeCode: key, units: 1 } : { uninsuredServiceId: Number(key), units: 1 }] }))
+    setService('')
+  }
+
+  return (
+    <section className="card">
+      <div className="panel-head"><h2>Diagnosis and billing</h2>{!editable && enc.status === 'Open' && <span className="muted small">Physician codes</span>}</div>
+      <div className="pad coding">
+        <h3>Diagnosis <span className="muted small">OHIP diagnostic code</span></h3>
+        <ul className="code-list">
+          {enc.diagnoses.map((d, i) => (
+            <li key={d.code}>
+              <span className="mono code">{d.code}</span>
+              <span className="desc">{d.description}</span>
+              {d.isPrimary ? <span className="badge ohip">Primary</span>
+                : editable && <button className="quiet small" disabled={busy} onClick={() => save(c => ({ ...c, diagnoses: c.diagnoses.map((x, j) => ({ ...x, isPrimary: j === i })) }))}>Make primary</button>}
+              {editable && <button className="quiet small" aria-label={`Remove ${d.description}`} disabled={busy}
+                onClick={() => save(c => {
+                  const rest = c.diagnoses.filter((_, j) => j !== i)
+                  // The first remaining diagnosis takes over as primary.
+                  if (d.isPrimary && rest.length) rest[0] = { ...rest[0], isPrimary: true }
+                  return { ...c, diagnoses: rest }
+                })}>✕</button>}
+            </li>
+          ))}
+          {enc.diagnoses.length === 0 && <li className="muted small">None yet.</li>}
+        </ul>
+        {editable && (
+          <div className="typeahead">
+            <input value={dxQuery} onChange={e => setDxQuery(e.target.value)} placeholder="Search code or condition, e.g. 401 or throat" aria-label="Add a diagnosis" />
+            {dxMatches.length > 0 && (
+              <ul role="listbox">
+                {dxMatches.map(d => (
+                  <li key={d.code}>
+                    <button disabled={busy} onClick={() => { save(c => ({ ...c, diagnoses: [...c.diagnoses, { code: d.code, isPrimary: c.diagnoses.length === 0 }] })); setDxQuery('') }}>
+                      <span className="mono">{d.code}</span> {d.description}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <h3>Services</h3>
+        <ul className="code-list">
+          {enc.services.map((s, i) => (
+            <li key={i}>
+              <span className="mono code">{s.code}</span>
+              <span className="desc">{s.description}{!s.insured && <span className="muted small"> · patient pays</span>}</span>
+              {editable ? (
+                <input className="units" type="number" min={1} max={99} value={s.units} aria-label="Units" disabled={busy}
+                  onChange={e => { const units = Math.min(99, Math.max(1, Number(e.target.value) || 1)); save(c => ({ ...c, services: c.services.map((x, j) => j === i ? { ...x, units } : x) })) }} />
+              ) : s.units > 1 && <span className="small">× {s.units}</span>}
+              <span className="fee">{money(s.fee)}</span>
+              {editable && <button className="quiet small" aria-label={`Remove ${s.description}`} disabled={busy} onClick={() => save(c => ({ ...c, services: c.services.filter((_, j) => j !== i) }))}>✕</button>}
+            </li>
+          ))}
+          {enc.services.length === 0 && <li className="muted small">None yet.</li>}
+        </ul>
+        {editable && (
+          <select value={service} onChange={e => addService(e.target.value)} aria-label="Add a service" disabled={busy}>
+            <option value="">Add a service…</option>
+            {insuredAllowed && (
+              <optgroup label="OHIP fee codes (illustrative)">
+                {codes.fee.map(f => <option key={f.code} value={`fee:${f.code}`}>{f.code} · {f.description} · {money(f.fee)}</option>)}
+              </optgroup>
+            )}
+            <optgroup label="Uninsured (clinic price list)">
+              {codes.uninsured.map(u => <option key={u.id} value={`uninsured:${u.id}`}>{u.name} · {money(u.price)}</option>)}
+            </optgroup>
+          </select>
+        )}
+        {!insuredAllowed && <p className="muted small" style={{ margin: 0 }}>No valid provincial coverage at check-in: bill the clinic’s private rate.</p>}
+        <dl className="totals">
+          {enc.insuredTotal > 0 && <><dt>To {enc.paymentProgram === 'RMB' ? 'OHIP (reciprocal)' : 'OHIP'}</dt><dd>{money(enc.insuredTotal)}</dd></>}
+          {enc.uninsuredTotal > 0 && <><dt>Patient pays</dt><dd>{money(enc.uninsuredTotal)}</dd></>}
+        </dl>
+      </div>
+    </section>
+  )
+}
+
+function Addenda({ enc, canAdd, busy, onAdd }: { enc: Encounter; canAdd: boolean; busy: boolean; onAdd: (text: string) => Promise<void> }) {
+  const [text, setText] = useState('')
+  return (
+    <div className="pad addenda">
+      <h3>Addenda</h3>
+      {enc.note?.addendum
+        ? enc.note.addendum.split('\n\n').map((a, i) => <p key={i} className="addendum">{a}</p>)
+        : <p className="muted small">The note is signed and locked. Corrections and late results are added here with your name and the time.</p>}
+      {canAdd && (
+        <form onSubmit={async e => { e.preventDefault(); await onAdd(text); setText('') }} style={{ display: 'grid', gap: '.5rem' }}>
+          <textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="Add an addendum" aria-label="Addendum" />
+          <div><button className="small" disabled={busy || !text.trim()}>Add addendum</button></div>
+        </form>
+      )}
+    </div>
+  )
+}

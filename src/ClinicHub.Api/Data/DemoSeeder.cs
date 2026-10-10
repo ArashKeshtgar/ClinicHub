@@ -31,6 +31,57 @@ public static class DemoSeeder
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(nowUtc, Toronto));
         for (var day = today; day <= today.AddDays(7); day = day.AddDays(1))
             await SeedDay(db, day, nowUtc);
+        await SeedEncounters(db, today);
+    }
+
+    /// <summary>
+    /// Today's patients who have already arrived get the encounter check-in would have opened, and those
+    /// roomed get the nurse's vitals, so the clinician's worklist starts mid-day like the front desk does.
+    /// </summary>
+    private static async Task SeedEncounters(ClinicHubDbContext db, DateOnly today)
+    {
+        var dayStartUtc = TimeZoneInfo.ConvertTimeToUtc(today.ToDateTime(TimeOnly.MinValue), Toronto);
+        string[] underway = [AppointmentStatus.Arrived, AppointmentStatus.Roomed, AppointmentStatus.WithProvider, AppointmentStatus.Completed];
+        var appts = await db.Appointments.Include(a => a.Patient).Include(a => a.AppointmentType).Include(a => a.StatusChanges)
+            .Where(a => a.StartUtc >= dayStartUtc && a.StartUtc < dayStartUtc.AddDays(1) && underway.Contains(a.Status)
+                && !db.Encounters.Any(e => e.AppointmentId == a.Id))
+            .ToListAsync();
+        if (appts.Count == 0)
+            return;
+        var reciprocal = await db.Provinces.ToDictionaryAsync(p => p.Code, p => p.ReciprocalBilling);
+        var deskId = await db.Users.Where(u => u.UserName == "frontdesk").Select(u => u.Id).FirstAsync();
+        var nurseId = await db.Users.Where(u => u.UserName == "nurse").Select(u => u.Id).FirstAsync();
+        var rng = new Random(today.DayNumber + 7);
+
+        foreach (var a in appts)
+        {
+            DateTime? At(string s) => a.StatusChanges.Where(c => c.Status == s).Select(c => (DateTime?)c.AtUtc).LastOrDefault();
+            var arrived = At(AppointmentStatus.Arrived) ?? a.StartUtc;
+            var hcv = HcvSimulator.Check(a.Patient, null, today, reciprocal);
+            var encounter = new Encounter
+            {
+                PatientId = a.PatientId, ProviderId = a.ProviderId, LocationId = a.LocationId, AppointmentId = a.Id, ReasonForVisit = a.Reason,
+                PaymentProgram = hcv.PaymentProgram, CheckInUtc = arrived, StartedUtc = At(AppointmentStatus.WithProvider), EndedUtc = At(AppointmentStatus.Completed),
+                Kind = a.Source == AppointmentSources.WalkIn ? EncounterKinds.WalkIn : a.AppointmentType.Name == "Virtual visit" ? EncounterKinds.Virtual : EncounterKinds.Office,
+                EligibilityCheck = new EligibilityCheck
+                {
+                    PatientId = a.PatientId, CheckedUtc = arrived, HealthCardNumber = a.Patient.HealthCardNumber ?? "", HealthCardVersion = a.Patient.HealthCardVersion,
+                    ResponseCode = hcv.Code, IsEligible = hcv.Eligible, Message = hcv.Message, CheckedByUserId = deskId,
+                },
+            };
+            if (At(AppointmentStatus.Roomed) is { } roomed && encounter.Kind != EncounterKinds.Virtual)
+            {
+                var systolic = (short)rng.Next(104, 152);
+                encounter.Vitals.Add(new VitalSigns
+                {
+                    TakenUtc = roomed.AddMinutes(3), TakenByUserId = nurseId, SystolicMmHg = systolic, DiastolicMmHg = (short)(systolic - rng.Next(35, 55)),
+                    HeartRate = (short)rng.Next(58, 98), RespiratoryRate = (short)rng.Next(12, 19), TemperatureC = 36.4m + rng.Next(0, 16) / 10m,
+                    SpO2 = (byte)rng.Next(95, 100), WeightKg = rng.Next(52, 105), HeightCm = rng.Next(152, 192),
+                });
+            }
+            db.Encounters.Add(encounter);
+        }
+        await db.SaveChangesAsync();
     }
 
     private static async Task SeedClinic(ClinicHubDbContext db, IPasswordHasher<User> hasher, DateTime nowUtc)
@@ -93,8 +144,8 @@ public static class DemoSeeder
                 db.ScheduleTemplates.Add(new ScheduleTemplate { ProviderId = p.Id, LocationId = location.Id, DayOfWeek = day,
                     StartTime = new(13, 0), EndTime = new(18, 0), SlotMinutes = 15, AcceptsWalkIns = p.LastName != "Haddad", EffectiveFrom = from });
             }
-        // Weekend walk-in clinic: two providers, 09:00–15:00.
-        foreach (var p in providers.Where(p => p.LastName is "Chen" or "Mensah"))
+        // Weekend walk-in clinic: two providers, 09:00–15:00. Dr. Patel is one so the demo physician has patients every day.
+        foreach (var p in providers.Where(p => p.LastName is "Patel" or "Mensah"))
             foreach (var day in new[] { DayOfWeek.Saturday, DayOfWeek.Sunday })
                 db.ScheduleTemplates.Add(new ScheduleTemplate { ProviderId = p.Id, LocationId = location.Id, DayOfWeek = day,
                     StartTime = new(9, 0), EndTime = new(15, 0), SlotMinutes = 15, AcceptsWalkIns = true, EffectiveFrom = from });

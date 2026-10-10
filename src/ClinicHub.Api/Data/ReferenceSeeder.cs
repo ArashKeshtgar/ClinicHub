@@ -41,7 +41,7 @@ public static class ReferenceSeeder
 
         await AddMissing(db, db.UninsuredServices, u => u.Code,
         [
-            U("NOTE", "Sick note", 25m), U("FORM", "Form completion (short)", 40m), U("FORM-L", "Form completion (long)", 90m),
+            U("VISIT", "Private visit (no provincial coverage)", 85m), U("NOTE", "Sick note", 25m), U("FORM", "Form completion (short)", 40m), U("FORM-L", "Form completion (long)", 90m),
             U("TRAVEL", "Travel medicine consultation", 60m), U("DRIVER", "Driver's medical examination", 90m),
             U("RX-PHONE", "Prescription renewal by phone", 15m), U("RECORDS", "Transfer of medical records", 30m),
         ]);

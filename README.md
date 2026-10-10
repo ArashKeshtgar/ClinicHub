@@ -35,7 +35,10 @@ patient data leaves the offline copy.
       patient flow with wait times, PHIPA access log on check-in
 - [x] Synthetic demo clinic: 5 providers, 400 patients, a rolling week of appointments following the
       legacy system's arrival curve
-- [ ] Encounter: vitals, SOAP note, diagnosis and fee codes, signing
+- [x] Visits: the clinician's worklist (ready, waiting, to sign, unsigned backlog), vitals with abnormal
+      values flagged, a SOAP note saved as you type, OHIP diagnostic and fee codes, signing by the treating
+      provider only. Signing locks the note (corrections become addenda), creates the OHIP claim ready for
+      the next batch, and invoices anything OHIP doesn't pay for; uninsured visits bill the private rate
 - [ ] OHIP claims: MC EDT batch file, simulated remittance advice, reconciliation
 - [ ] Orders to LabFlow and ClinicReport over FHIR, results inbox
 - [ ] Master patient index: duplicate detection and merge; PHIPA consent directives

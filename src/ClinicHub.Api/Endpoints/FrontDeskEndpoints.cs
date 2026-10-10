@@ -195,7 +195,7 @@ public static class FrontDeskEndpoints
             }).ToArray());
     }
 
-    private static PatientBrief Brief(Patient p, DateOnly today)
+    internal static PatientBrief Brief(Patient p, DateOnly today)
     {
         var age = today.Year - p.DateOfBirth.Year - (today < p.DateOfBirth.AddYears(today.Year - p.DateOfBirth.Year) ? 1 : 0);
         var coverage = p.HealthCardNumber is not null ? "OHIP" : p.CoverageProvince ?? "None";
@@ -213,7 +213,7 @@ public static class FrontDeskEndpoints
     /// <summary>Check-in (Booked → Arrived) has its own endpoint because it validates the health card.</summary>
     public static bool Allowed(string from, string to) => Transitions.TryGetValue(from, out var next) && next.Contains(to);
 
-    private static void Move(Appointment a, string status, DateTime now, int userId)
+    internal static void Move(Appointment a, string status, DateTime now, int userId)
     {
         a.Status = status;
         a.StatusChanges.Add(new AppointmentStatusChange { Status = status, AtUtc = now, UserId = userId });

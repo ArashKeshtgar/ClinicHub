@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { api, ApiError, can, localTime, minutesSince, shiftDate, torontoToday, type AppointmentRow, type DayView, type Eligibility, type PatientBrief, type Status } from '../api'
 import { useSession } from '../App'
 
@@ -110,6 +111,7 @@ export default function FrontDesk() {
                       <div className="patient">
                         <strong>{a.patient.name}</strong>
                         <span className="muted small">{a.patient.age} y · {a.patient.sex} · <span className="mono">{a.patient.mrn}</span></span>
+                        {a.encounterId && can(me, 'encounters.view') && <Link to={`/visits/${a.encounterId}`} className="small chart-link">Open visit</Link>}
                         {a.queueNumber && <div className="walkin-tag">Walk-in #{a.queueNumber}{a.reason ? ` · ${a.reason}` : ''}</div>}
                       </div>
                       <div className="small"><span className="type-dot" style={{ ['--type-color' as string]: TYPE_COLORS[a.type.color] ?? '#64748b' }} />{a.type.name}</div>

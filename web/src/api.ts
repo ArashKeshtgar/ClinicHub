@@ -82,3 +82,75 @@ export function shiftDate(date: string, days: number) {
   d.setDate(d.getDate() + days)
   return d.toISOString().slice(0, 10)
 }
+
+// --- the visit ---
+
+export type EncounterStatus = 'Open' | 'Signed' | 'Voided'
+export type ProviderBrief = { id: number; name: string; kind: string; specialty?: string }
+
+export type WorklistRow = {
+  id: number; appointmentId?: number; patient: PatientBrief; providerId: number; kind: string; status: EncounterStatus; paymentProgram: string
+  appointmentStatus?: Status; room?: string; reason?: string; checkInUtc: string; roomedUtc?: string; startedUtc?: string
+  hasVitals: boolean; hasNote: boolean; coded: number
+}
+export type Worklist = { date: string; providers: ProviderBrief[]; visits: WorklistRow[]; olderUnsigned: WorklistRow[] }
+
+export type Vitals = {
+  id: number; takenUtc: string; systolicMmHg?: number; diastolicMmHg?: number; heartRate?: number; respiratoryRate?: number
+  temperatureC?: number; spO2?: number; weightKg?: number; heightCm?: number; bmi?: number; takenBy: string
+}
+export type VitalsInput = Partial<Omit<Vitals, 'id' | 'takenUtc' | 'bmi' | 'takenBy'>>
+export type Soap = { subjective?: string; objective?: string; assessment?: string; plan?: string }
+export type Note = Soap & { addendum?: string; updatedUtc: string; author: string }
+export type Diagnosis = { code: string; description: string; isPrimary: boolean }
+export type Service = { feeCode?: string; uninsuredServiceId?: number; code: string; description: string; units: number; fee: number; insured: boolean }
+
+export type Encounter = {
+  id: number; status: EncounterStatus; kind: string; paymentProgram: string; reasonForVisit?: string
+  checkInUtc: string; startedUtc?: string; endedUtc?: string; signedUtc?: string; signedBy?: string
+  patient: { id: number; name: string; mrn: string; age: number; sex: string; dateOfBirth: string; coverage: string; healthCard?: string }
+  provider: ProviderBrief; appointmentId?: number; appointmentStatus?: Status; room?: string; eligibility?: Eligibility
+  vitals: Vitals[]; note?: Note; diagnoses: Diagnosis[]; services: Service[]; insuredTotal: number; uninsuredTotal: number
+  readyToSign: string[]
+  billing?: { claimNumber?: string; claimStatus?: string; claimAmount?: number; invoiceNumber?: string; invoiceTotal?: number }
+  history: { id: number; checkInUtc: string; provider: string; status: EncounterStatus; diagnosis?: string; assessment?: string }[]
+}
+
+export type Codes = {
+  diagnostic: { code: string; description: string }[]
+  fee: { code: string; description: string; fee: number }[]
+  uninsured: { id: number; code: string; name: string; price: number }[]
+}
+
+export type Coding = {
+  diagnoses: { code: string; isPrimary: boolean }[]
+  services: { feeCode?: string; uninsuredServiceId?: number; units: number }[]
+}
+
+export const encounters = {
+  worklist: (date?: string, providerId?: number | 'all') => {
+    const q = new URLSearchParams()
+    if (date) q.set('date', date)
+    if (typeof providerId === 'number') q.set('providerId', String(providerId))
+    // Without either, the server shows the signed-in provider's own visits.
+    if (providerId === 'all') q.set('all', 'true')
+    return request<Worklist>('GET', `/api/encounters?${q}`)
+  },
+  get: (id: number) => request<Encounter>('GET', `/api/encounters/${id}`),
+  start: (id: number) => request<Encounter>('POST', `/api/encounters/${id}/start`),
+  finish: (id: number) => request<Encounter>('POST', `/api/encounters/${id}/finish`),
+  addVitals: (id: number, v: VitalsInput) => request<Encounter>('POST', `/api/encounters/${id}/vitals`, v),
+  saveNote: (id: number, note: Soap) => request<{ updatedUtc: string }>('PUT', `/api/encounters/${id}/note`, note),
+  saveCoding: (id: number, coding: Coding) => request<Encounter>('PUT', `/api/encounters/${id}/coding`, coding),
+  sign: (id: number) => request<Encounter>('POST', `/api/encounters/${id}/sign`),
+  addendum: (id: number, text: string) => request<Encounter>('POST', `/api/encounters/${id}/addendum`, { text }),
+  codes: () => request<Codes>('GET', '/api/codes'),
+}
+
+export const money = (n: number) => n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' })
+
+export function localDateTime(iso: string) {
+  return new Date(iso.endsWith('Z') ? iso : iso + 'Z').toLocaleString('en-CA', {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Toronto',
+  })
+}
