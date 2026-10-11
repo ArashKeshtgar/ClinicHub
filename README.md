@@ -67,6 +67,9 @@ patient data leaves the offline copy.
 - [x] ClinicReport connected mode: signs in through ClinicHub, one ClinicReport database per clinic, sessions
       re-checked with ClinicHub
 - [x] LabFlow signing in through ClinicHub, with one lab database or one per clinic
+- [x] The clinic's money to the group's accounting (FinancePowerApp): claims, remittances, physicians' shares,
+      invoices and payments as financial documents, no health information, see
+      [docs/architecture.md](docs/architecture.md#money-to-the-accounting-financepowerapp)
 - [ ] Clinic operations dashboard; Docker image and public demo
 
 ## Run it

@@ -134,4 +134,17 @@ public class ResultTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var token = await AppToken("clinicreport", SsoTests.Secret, scope: "");
         Assert.Equal(HttpStatusCode.Forbidden, (await Post(token, Report(order, "final", "x"))).StatusCode);
     }
+
+    [Fact]
+    public async Task An_application_gets_a_token_for_the_finance_application()
+    {
+        var token = await AppToken("labflow", "test-labflow-secret", scope: "finance");
+        var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(token);
+        Assert.Contains("finance", jwt.Audiences);
+        Assert.Equal("labflow", jwt.Claims.Single(c => c.Type == "client_id").Value);
+        Assert.Contains(jwt.Claims, c => c.Type == "scope" && c.Value == "finance");
+        // Results alone: no finance audience.
+        var results = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(await AppToken("labflow", "test-labflow-secret"));
+        Assert.DoesNotContain("finance", results.Audiences);
+    }
 }

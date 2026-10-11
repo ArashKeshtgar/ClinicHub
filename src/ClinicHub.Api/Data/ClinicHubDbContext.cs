@@ -51,6 +51,7 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
     public DbSet<Invoice> Invoices => Set<Invoice>();
     public DbSet<InvoiceLine> InvoiceLines => Set<InvoiceLine>();
     public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<FinanceExport> FinanceExports => Set<FinanceExport>();
 
     public DbSet<User> Users => Set<User>();
     public DbSet<PatientAccessLog> PatientAccessLog => Set<PatientAccessLog>();
@@ -347,6 +348,11 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
         {
             e.ToTable("InvoiceLine", "billing", t => t.HasCheckConstraint("CK_InvoiceLine_Amounts", "Quantity > 0 AND UnitPrice >= 0"));
             e.Property(x => x.TaxRatePercent).HasPrecision(5, 2);
+        });
+        b.Entity<FinanceExport>(e =>
+        {
+            e.ToTable("FinanceExport", "billing");
+            e.HasKey(x => x.ExternalId);
         });
         b.Entity<Payment>(e =>
         {

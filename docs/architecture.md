@@ -276,3 +276,27 @@ in the access log. The rules are in `Domain/ConsentGuard.cs`.
 - **Not built:** LabFlow and ClinicReport are not told about directives, so an order sent to them is not marked as
   withheld there; telling the patient about an override is the privacy officer's job, outside ClinicHub.
 
+## Money to the accounting (FinancePowerApp)
+
+The clinic's money goes to [FinancePowerApp](../../FinancePowerApp), the group's accounting, as financial documents
+(`Integrations/FinanceFeed.cs`). They are built from the billing tables as they are, each with an id that never
+changes, sent on the outbox worker's pass and marked in `billing.FinanceExport` once accepted; FinancePowerApp also
+recognises a document sent twice.
+
+| In ClinicHub | Document | In the books |
+|---|---|---|
+| A claim ready for OHIP (or WSIB) | Invoice to OHIP (WSIB), `OHIP.Professional` (`OHIP.Reciprocal` for another province's patient, which OHIP pays and recovers) | Receivable from OHIP, OHIP fees, by provider |
+| A remittance advice | Receipt from OHIP by EFT, one line per claim paid | The claims' receivables paid down |
+| A claim paid less than billed (final) | Adjustment `Adjustment.ShortPaid` | The rest written off |
+| A physician's share of a remittance, net of overhead | Bill from the physician (`Expense.PhysicianShare`) | Physician fees, payable to the physician |
+| An invoice for uninsured services / a payment on it | Invoice to "Patients" with its HST / Receipt | Receivable from patients, uninsured services, HST payable |
+
+- **No health information leaves:** no patient names, health cards, diagnoses or fee codes. Patients are one party;
+  invoices and claims are known by their numbers.
+- A refused claim stays owed until it is resubmitted and paid, or written off in the accounting.
+- **Who is calling:** a five-minute token ClinicHub signs (audience and scope `finance`, the clinic slug), checked by
+  FinancePowerApp against ClinicHub's published keys. LabFlow and ClinicReport get theirs with client credentials and
+  the scope `finance`; ClinicHub gives such tokens the audience `finance`.
+- Set `Integrations:Finance:BaseUrl` to turn it on (development: `http://localhost:5400`; FinancePowerApp started
+  with `--launch-profile connected`).
+

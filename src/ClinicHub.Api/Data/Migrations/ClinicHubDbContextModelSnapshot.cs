@@ -829,6 +829,20 @@ namespace ClinicHub.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ClinicHub.Api.Data.FinanceExport", b =>
+                {
+                    b.Property<string>("ExternalId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("SentUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("ExternalId");
+
+                    b.ToTable("FinanceExport", "billing");
+                });
+
             modelBuilder.Entity("ClinicHub.Api.Data.InboundMessage", b =>
                 {
                     b.Property<long>("Id")

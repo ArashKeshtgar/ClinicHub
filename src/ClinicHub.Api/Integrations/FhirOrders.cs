@@ -22,6 +22,14 @@ public class IntegrationOptions
     public Target LabFlow { get; set; } = new();
     public Target ClinicReport { get; set; } = new();
 
+    public class FinanceTarget
+    {
+        /// <summary>FinancePowerApp's address, e.g. http://localhost:5400. Empty: nothing is sent to the accounting.</summary>
+        public string? BaseUrl { get; set; }
+    }
+
+    public FinanceTarget Finance { get; set; } = new();
+
     /// <summary>How often the outbox is looked at. 0 turns the background worker off (tests send on demand).</summary>
     public int PollSeconds { get; set; } = 5;
 
@@ -40,7 +48,7 @@ public class ServiceTokens(IOptionsMonitor<OpenIddictServerOptions> server, IOpt
 {
     public const string OrdersScope = "orders";
 
-    public string Create(string audience, Clinic clinic)
+    public string Create(string audience, Clinic clinic, string scope = OrdersScope)
     {
         var issuer = sso.Value.Issuer ?? server.CurrentValue.Issuer?.AbsoluteUri
             ?? throw new InvalidOperationException("Set Sso:Issuer: tokens ClinicHub sends on its own need its public address.");
@@ -55,7 +63,7 @@ public class ServiceTokens(IOptionsMonitor<OpenIddictServerOptions> server, IOpt
             SigningCredentials = server.CurrentValue.SigningCredentials.First(),
             Subject = new ClaimsIdentity(
             [
-                new Claim("sub", "clinichub"), new Claim("scope", OrdersScope),
+                new Claim("sub", "clinichub"), new Claim("scope", scope),
                 new Claim(SsoClaims.ClinicSlug, clinic.Slug), new Claim(SsoClaims.ClinicName, clinic.Name),
             ]),
         });

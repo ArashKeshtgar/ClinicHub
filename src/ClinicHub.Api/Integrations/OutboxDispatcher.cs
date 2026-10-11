@@ -16,7 +16,7 @@ namespace ClinicHub.Api.Integrations;
 /// carries on with the application's answer as its note.
 /// </summary>
 public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory http, IOptionsMonitor<IntegrationOptions> options,
-    TimeProvider clock, ILogger<OutboxDispatcher> logger)
+    TimeProvider clock, ILogger<OutboxDispatcher> logger, FinanceFeed finance)
 {
     public const string HttpClientName = "fhir";
     public const int MaxAttempts = 12;
@@ -38,6 +38,8 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
             foreach (var message in due)
                 if (await SendAsync(db, clinic, message, tokens, ct))
                     delivered++;
+            // The clinic's money to the group's accounting, on the same pass.
+            await finance.SendAsync(db, clinic, tokens, ct);
         }
         return delivered;
     }

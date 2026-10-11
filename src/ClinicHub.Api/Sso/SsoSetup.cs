@@ -53,6 +53,9 @@ public static class SsoClaims
 
     /// <summary>An application sending results to ClinicHub (client credentials).</summary>
     public const string ResultsScope = "results";
+
+    /// <summary>An application sending financial documents to FinancePowerApp (client credentials); also its audience.</summary>
+    public const string FinanceScope = "finance";
 }
 
 public static class SsoSetup
@@ -84,7 +87,7 @@ public static class SsoSetup
                 o.AllowRefreshTokenFlow();
                 // Applications calling ClinicHub on their own (results back): client credentials, scope "results".
                 o.AllowClientCredentialsFlow();
-                o.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, SsoClaims.ClinicScope, SsoClaims.ResultsScope);
+                o.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, SsoClaims.ClinicScope, SsoClaims.ResultsScope, SsoClaims.FinanceScope);
                 o.SetAccessTokenLifetime(TimeSpan.FromMinutes(30));
                 if (sso.Issuer is { Length: > 0 } issuer)
                     o.SetIssuer(new Uri(issuer));
@@ -139,6 +142,7 @@ public static class SsoSetup
                     OpenIddictConstants.Permissions.Prefixes.Scope + SsoClaims.ClinicScope,
                     OpenIddictConstants.Permissions.GrantTypes.ClientCredentials,
                     OpenIddictConstants.Permissions.Prefixes.Scope + SsoClaims.ResultsScope,
+                    OpenIddictConstants.Permissions.Prefixes.Scope + SsoClaims.FinanceScope,
                 },
                 Requirements = { Requirements.Features.ProofKeyForCodeExchange },
             };

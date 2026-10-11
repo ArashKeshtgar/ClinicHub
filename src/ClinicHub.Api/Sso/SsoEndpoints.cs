@@ -94,10 +94,14 @@ public static class SsoEndpoints
         var request = http.GetOpenIddictServerRequest() ?? throw new InvalidOperationException("Not an OpenID Connect request.");
         if (request.IsClientCredentialsGrantType())
         {
-            // An application on its own behalf (OpenIddict has already checked its secret): it may only send results.
+            // An application on its own behalf (OpenIddict has already checked its secret): it may send results here, and
+            // financial documents to FinancePowerApp (a token for the audience "finance").
             var app = new ClaimsIdentity(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme, Claims.Name, Claims.Role);
             app.SetClaim(Claims.Subject, request.ClientId).SetClaim(Claims.ClientId, request.ClientId);
-            app.SetScopes(request.GetScopes().Intersect([SsoClaims.ResultsScope]));
+            var scopes = request.GetScopes().Intersect([SsoClaims.ResultsScope, SsoClaims.FinanceScope]).ToList();
+            app.SetScopes(scopes);
+            if (scopes.Contains(SsoClaims.FinanceScope))
+                app.SetResources(SsoClaims.FinanceScope);
             app.SetDestinations(_ => [OpenIddictConstants.Destinations.AccessToken]);
             return Results.SignIn(new ClaimsPrincipal(app), properties: null, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }

@@ -31,6 +31,8 @@ builder.Services.AddClinicSso(builder.Configuration, builder.Environment);
 builder.Services.Configure<IntegrationOptions>(builder.Configuration.GetSection("Integrations"));
 builder.Services.AddHttpClient(OutboxDispatcher.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
 builder.Services.AddScoped<ServiceTokens>();
+builder.Services.AddHttpClient(FinanceFeed.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddSingleton<FinanceFeed>();
 builder.Services.AddSingleton<OutboxDispatcher>();
 builder.Services.AddHostedService<OutboxWorker>();
 // Results coming back from LabFlow and ClinicReport.

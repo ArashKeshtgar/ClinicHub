@@ -173,6 +173,13 @@ public static class PaymentMethods
     public const string Cheque = "Cheque";
 }
 
+/// <summary>A financial document already accepted by FinancePowerApp (see Integrations/FinanceFeed), so it is sent once.</summary>
+public class FinanceExport
+{
+    [MaxLength(200)] public string ExternalId { get; set; } = "";
+    public DateTime SentUtc { get; set; }
+}
+
 public class Payment
 {
     public int Id { get; set; }
