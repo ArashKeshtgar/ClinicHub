@@ -3,6 +3,7 @@ using ClinicHub.Api.Auth;
 using ClinicHub.Api.Catalog;
 using ClinicHub.Api.Data;
 using ClinicHub.Api.Endpoints;
+using ClinicHub.Api.Sso;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
@@ -23,6 +24,8 @@ builder.Services.AddSingleton<IPasswordHasher<Account>, PasswordHasher<Account>>
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.AddClinicAuth();
+// ClinicHub is the sign-in for ClinicReport and LabFlow (OpenID Connect).
+builder.Services.AddClinicSso(builder.Configuration, builder.Environment);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull);
 
 var loginsPerMinute = builder.Configuration.GetValue("RateLimits:LoginsPerMinute", 10);
@@ -41,6 +44,7 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     var provisioning = services.GetRequiredService<ClinicProvisioning>();
     await provisioning.UpgradeAllAsync();
+    await SsoSetup.RegisterClientsAsync(services);
     if (services.GetRequiredService<IOptions<DemoOptions>>().Value.Enabled)
         await DemoSeeder.SeedAsync(services.GetRequiredService<CatalogDbContext>(), provisioning, services.GetRequiredService<ClinicDatabases>(),
             services.GetRequiredService<IPasswordHasher<Account>>(), services.GetRequiredService<TimeProvider>().GetUtcNow().UtcDateTime);
@@ -74,6 +78,7 @@ app.MapFrontDeskEndpoints();
 app.MapEncounterEndpoints();
 app.MapBillingEndpoints();
 app.MapUserEndpoints();
+app.MapSsoEndpoints();
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();

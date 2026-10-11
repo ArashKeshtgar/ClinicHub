@@ -40,16 +40,26 @@ public class ClinicProvisioning(CatalogDbContext catalog, ClinicDatabases databa
     }
 
     /// <summary>
-    /// Adds missing built-in roles and gives Administrator every permission, including ones a new version
-    /// added. Never overwrites a clinic's edits to the other roles.
+    /// Adds missing built-in roles; gives Administrator every permission; and adds permissions a new version
+    /// introduced to the built-in roles that list them. Never takes back what a clinic changed in its roles.
     /// </summary>
     public async Task EnsureRolesAsync(Clinic clinic)
     {
+        var tracked = await catalog.Clinics.SingleAsync(c => c.Id == clinic.Id);
+        // Clinics opened before this was tracked knew ClinicHub's own permissions, none of the other applications'.
+        var known = (tracked.KnownPermissions is null ? Permissions.All.Where(p => !p.Contains(':')) : Permissions.Parse(tracked.KnownPermissions)).ToHashSet();
+        var fresh = Permissions.All.Where(p => !known.Contains(p)).ToHashSet();
         var existing = await catalog.Roles.Where(r => r.ClinicId == clinic.Id).ToDictionaryAsync(r => r.Name);
-        foreach (var (name, description, permissions) in SystemRoles.Defaults.Where(d => !existing.ContainsKey(d.Name)))
-            catalog.Roles.Add(new Role { ClinicId = clinic.Id, Name = name, Description = description, Permissions = Permissions.Format(permissions), IsSystem = true });
+        foreach (var (name, description, permissions) in SystemRoles.Defaults)
+        {
+            if (!existing.TryGetValue(name, out var role))
+                catalog.Roles.Add(new Role { ClinicId = clinic.Id, Name = name, Description = description, Permissions = Permissions.Format(permissions), IsSystem = true });
+            else if (role.IsSystem && permissions.Any(fresh.Contains))
+                role.Permissions = Permissions.Format(Permissions.Parse(role.Permissions).Union(permissions.Where(fresh.Contains)));
+        }
         if (existing.TryGetValue(SystemRoles.Administrator, out var admin))
             admin.Permissions = Permissions.Format(Permissions.All);
+        tracked.KnownPermissions = Permissions.Format(Permissions.All);
         await catalog.SaveChangesAsync();
     }
 

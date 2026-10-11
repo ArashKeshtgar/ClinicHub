@@ -64,7 +64,9 @@ public static class AuthSetup
             {
                 o.Cookie.Name = "clinichub.auth";
                 o.Cookie.HttpOnly = true;
-                o.Cookie.SameSite = SameSiteMode.Strict;
+                // Lax, not Strict: an application on another site (ClinicReport) sends people here to sign in, and
+                // that navigation must carry the session. Unsafe API calls still need the X-ClinicHub header.
+                o.Cookie.SameSite = SameSiteMode.Lax;
                 o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
                 o.ExpireTimeSpan = TimeSpan.FromHours(10);
                 o.SlidingExpiration = true;

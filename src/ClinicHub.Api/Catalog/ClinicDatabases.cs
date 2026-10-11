@@ -77,7 +77,8 @@ public static class ClinicDatabaseSetup
     public static void AddClinicDatabases(this IServiceCollection services, IConfiguration config)
     {
         var catalog = config.GetConnectionString("Catalog") ?? throw new InvalidOperationException("ConnectionStrings:Catalog is not configured.");
-        services.AddDbContext<CatalogDbContext>(o => o.UseSqlServer(catalog, sql => sql.EnableRetryOnFailure()));
+        // The catalog also stores the sign-in server's registered applications, authorizations and tokens (OpenIddict).
+        services.AddDbContext<CatalogDbContext>(o => o.UseSqlServer(catalog, sql => sql.EnableRetryOnFailure()).UseOpenIddict());
         services.Configure<ClinicOptions>(config.GetSection("Clinics"));
         services.AddSingleton<ClinicDatabases>();
         services.AddHttpContextAccessor();

@@ -16,5 +16,5 @@ public class CatalogDesignTimeFactory : IDesignTimeDbContextFactory<CatalogDbCon
 {
     public CatalogDbContext CreateDbContext(string[] args) =>
         new(new DbContextOptionsBuilder<CatalogDbContext>()
-            .UseSqlServer("Server=.;Database=ClinicHub_Catalog_Design;Integrated Security=True;TrustServerCertificate=True").Options);
+            .UseSqlServer("Server=.;Database=ClinicHub_Catalog_Design;Integrated Security=True;TrustServerCertificate=True").UseOpenIddict().Options);
 }

@@ -50,7 +50,10 @@ patient data leaves the offline copy.
       refused claims — [docs/ohip-billing.md](docs/ohip-billing.md)
 - [ ] Orders to LabFlow and ClinicReport over FHIR, results inbox
 - [ ] Master patient index: duplicate detection and merge; PHIPA consent directives
-- [ ] ClinicHub as the OpenID Connect sign-in for ClinicReport (connected mode) and LabFlow
+- [x] ClinicHub as an OpenID Connect provider: code flow with PKCE, refresh, userinfo, sign-out; tokens carry the
+      clinic and only the requesting application's permissions; ClinicReport and LabFlow permissions are part
+      of each clinic's roles
+- [ ] ClinicReport connected mode and LabFlow signing in through ClinicHub
 - [ ] Clinic operations dashboard; Docker image and public demo
 
 ## Run it

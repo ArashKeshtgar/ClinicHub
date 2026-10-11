@@ -25,12 +25,18 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Clinics:DatabasePrefix", _prefix);
         builder.UseSetting("Demo:Enabled", "true");
         builder.UseSetting("RateLimits:LoginsPerMinute", "1000");
+        builder.UseSetting("Sso:Clients:0:ClientId", "clinicreport");
+        builder.UseSetting("Sso:Clients:0:DisplayName", "ClinicReport");
+        builder.UseSetting("Sso:Clients:0:ClientSecret", SsoTests.Secret);
+        builder.UseSetting("Sso:Clients:0:RedirectUris:0", SsoTests.RedirectUri);
+        builder.UseSetting("Sso:Clients:0:PostLogoutRedirectUris:0", "https://report.test/");
+        builder.UseSetting("Sso:Clients:0:LaunchUrl", "https://report.test/");
     }
 
     /// <summary>Signs in a demo user; someone who works at several clinics is put in <paramref name="clinic"/>.</summary>
-    public async Task<HttpClient> SignInAsync(string user, string clinic = "harbourview")
+    public async Task<HttpClient> SignInAsync(string user, string clinic = "harbourview", bool followRedirects = true)
     {
-        var c = CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var c = CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true, AllowAutoRedirect = followRedirects });
         c.DefaultRequestHeaders.Add("X-ClinicHub", "1");
         var me = await (await c.PostAsJsonAsync("/api/auth/demo-login", new { userName = user })).EnsureSuccessStatusCode().Content.ReadFromJsonAsync<JsonNode>();
         if (me!["clinic"] is null)

@@ -36,8 +36,15 @@ export default function App() {
 
   const signOut = async () => { await api.logout(); setMe(null) }
 
+  // Sent here by an application signing in through ClinicHub (/connect/authorize): once signed in, past any
+  // pending step and with a clinic chosen, go back so it can finish the sign-in.
+  const returnUrl = safeReturnUrl()
+  const ready = !!me && !me.pendingAction && !!me.clinic
+  useEffect(() => { if (ready && returnUrl) window.location.assign(returnUrl) }, [ready, returnUrl])
+
   if (!settings || me === undefined) return <p className="muted page">Loading…</p>
-  if (!me) return <Login settings={settings} onSignedIn={setMe} />
+  if (ready && returnUrl) return <p className="muted page">Returning to {appName(returnUrl)}…</p>
+  if (!me) return <Login settings={settings} onSignedIn={setMe} returnTo={returnUrl ? appName(returnUrl) : null} />
   if (me.pendingAction) return <PendingAction me={me} onDone={setMe} onSignOut={signOut} />
   if (!me.clinic) return <ClinicPicker me={me} onChosen={setMe} onSignOut={signOut} />
 
@@ -52,6 +59,8 @@ export default function App() {
 function Shell({ me, settings, setMe, signOut }: { me: Me; settings: Settings; setMe: (me: Me) => void; signOut: () => void }) {
   const navigate = useNavigate()
   const clinic = me.clinic!
+  const [apps, setApps] = useState<{ clientId: string; name: string; url?: string }[]>([])
+  useEffect(() => { api.apps().then(setApps).catch(() => setApps([])) }, [])
   return (
     <>
       <header className="topbar">
@@ -69,6 +78,8 @@ function Shell({ me, settings, setMe, signOut }: { me: Me; settings: Settings; s
           {can(me, 'users.manage') && <NavLink to="/people">People</NavLink>}
           {can(me, 'audit.view') && <NavLink to="/logs">Logs</NavLink>}
           {me.isPlatformAdmin && <NavLink to="/clinics">Clinics</NavLink>}
+          {/* Other applications sign in through ClinicHub: opening one needs no second password. */}
+          {apps.filter(a => a.url).map(a => <a key={a.clientId} href={a.url} className="app-link" title={`Open ${a.name} (signs in with ClinicHub)`}>{a.name} ↗</a>)}
         </nav>
         <div className="who">
           <NavLink to="/account" className="account-link" title="My account">
@@ -111,7 +122,19 @@ const DEMO: Record<string, [string, string]> = {
   admin: ['Administrator', 'Both clinics, people and roles, and opening new clinics'],
 }
 
-function Login({ settings, onSignedIn }: { settings: Settings; onSignedIn: (m: Me) => void }) {
+/** Only ClinicHub's own sign-in endpoint: anything else in returnUrl would make this page an open redirect. */
+function safeReturnUrl() {
+  const url = new URLSearchParams(window.location.search).get('returnUrl')
+  return url && url.startsWith('/connect/authorize?') ? url : null
+}
+
+const APP_NAMES: Record<string, string> = { clinicreport: 'ClinicReport', labflow: 'LabFlow' }
+function appName(returnUrl: string) {
+  const id = new URLSearchParams(returnUrl.slice(returnUrl.indexOf('?'))).get('client_id') ?? ''
+  return APP_NAMES[id] ?? id
+}
+
+function Login({ settings, onSignedIn, returnTo }: { settings: Settings; onSignedIn: (m: Me) => void; returnTo: string | null }) {
   const [userName, setUserName] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
@@ -141,7 +164,9 @@ function Login({ settings, onSignedIn }: { settings: Settings; onSignedIn: (m: M
     <div className="login">
       <div className="card login-card">
         <div className="brand"><Logo size={38} /> ClinicHub</div>
-        <p className="muted" style={{ margin: 0 }}>One sign-in for every clinic you work at. Each clinic's records are kept in its own database.</p>
+        {returnTo
+          ? <p className="result ok" style={{ margin: 0 }}>Sign in to continue to {returnTo}.</p>
+          : <p className="muted" style={{ margin: 0 }}>One sign-in for every clinic you work at. Each clinic's records are kept in its own database.</p>}
         {settings.demo && (
           <>
             <h2>Sign in to the demo as…</h2>

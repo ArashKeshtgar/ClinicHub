@@ -64,6 +64,8 @@ export const api = {
   twoFactorEnable: (code: string) => request<Me>('POST', '/api/auth/two-factor/enable', { code }),
   twoFactorDisable: (password: string) => request<Me>('POST', '/api/auth/two-factor/disable', { password }),
   revokeOtherSessions: () => request<void>('POST', '/api/auth/sessions/revoke'),
+  /** Applications that sign in through ClinicHub and that this person may open from the current clinic. */
+  apps: () => request<{ clientId: string; name: string; url?: string }[]>('GET', '/api/apps'),
   demoLogin: (userName: string) => request<Me>('POST', '/api/auth/demo-login', { userName }),
   logout: () => request<void>('POST', '/api/auth/logout'),
   day: (date?: string) => request<DayView>('GET', `/api/frontdesk/day${date ? `?date=${date}` : ''}`),

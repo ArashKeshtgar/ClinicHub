@@ -307,3 +307,4 @@ table.data tr.selected { background: var(--primary-soft); }
   .topbar nav { order: 3; flex-basis: 100%; overflow-x: auto; }
   .topbar .who { margin-left: auto; }
 }
+.topbar nav a.app-link { color: var(--provider); border: 1px dashed var(--border); }

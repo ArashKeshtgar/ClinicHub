@@ -38,7 +38,7 @@ flowchart TB
 | Phase | What | Status |
 |---|---|---|
 | 1 | Catalog database, database per clinic, clinic picker and switcher; ClinicReport's account security brought into ClinicHub: temporary passwords, two-factor (TOTP), lockout, sign out everywhere, people and per-clinic roles, security log; platform administrators open clinics | **Done** |
-| 2 | ClinicHub as an OpenID Connect provider: registered applications, per-application permissions in roles (`report.*`, `lab.*`), the clinic in the token | Not started |
+| 2 | ClinicHub as an OpenID Connect provider: registered applications, per-application permissions in roles (`clinicreport:*`, `labflow:*`), the clinic in the token | **Done** |
 | 3 | ClinicReport connected mode: sign-in through ClinicHub, its users mapped to ClinicHub accounts, standalone mode unchanged | Not started |
 | 4 | LabFlow signs in through ClinicHub (today it has only a development sign-in) | Not started |
 
@@ -68,3 +68,34 @@ flowchart TB
 - A **platform administrator** opens clinics. Opening one creates its catalog entry and roles, creates and
   migrates its database, adds a first location, and makes the creator its administrator.
 - Every clinic must always keep at least one person with `users.manage`.
+
+## The sign-in server (phase 2)
+
+ClinicHub is an OpenID Connect provider ([OpenIddict](https://documentation.openiddict.com/)), with its
+registered applications, authorizations and tokens in the catalog database.
+
+- **Flow:** authorization code with PKCE; refresh tokens; userinfo; sign-out. Applications are registered
+  from configuration (`Sso:Clients`: client id, secret, redirect URIs, launch URL) at start-up. They are
+  first-party, so there is no consent screen.
+- **Signing in from an application:** `/connect/authorize` uses the ClinicHub session. Not signed in, a
+  pending password or two-factor step, or no clinic chosen: the person is sent to ClinicHub's pages
+  (`/signin?returnUrl=…`), which finish that and return to `/connect/authorize`. `prompt=login` signs out
+  first. The ClinicHub cookie is `SameSite=Lax` so this navigation from another site carries it.
+- **What the application receives:** `sub` (the account), `name`, `preferred_username`, `credentials`;
+  with the `clinic` scope also `clinic_id`, `clinic_slug`, `clinic_name`, the roles held in that clinic and
+  `permission`: only that application's permissions, without the prefix. A role holding
+  `clinicreport:reports.sign` becomes `reports.sign` in ClinicReport's token, the key ClinicReport already
+  checks. `amr: mfa` when the account uses two-factor.
+- **Refusals:** someone with no permission for the application at the chosen clinic gets `access_denied`
+  (and an `SsoRefused` entry in the security log). Each refresh reads the account again: deactivated, a
+  new security stamp ("sign out everywhere", password change), or the permission taken away ends the
+  application's session with `invalid_grant`.
+- **Keys:** development uses ASP.NET's development certificates; tests use ephemeral keys; production
+  sets `Sso:SigningCertificatePath`. Access tokens are signed, not encrypted, so the applications can read
+  them. `Sso:Issuer` fixes the public address when ClinicHub is behind a reverse proxy (and behind Vite in
+  development, where everything is on `http://localhost:5301`).
+- **New permissions reach existing clinics once:** each clinic records the permission keys its built-in
+  roles have been given; a key added by a new version is added to the built-in roles that list it, and a
+  clinic's own later edits stand. This is how the existing demo clinics' Physician role gained
+  `clinicreport:reports.sign`.
+- ClinicHub's top bar links to the applications the person may open from the current clinic.

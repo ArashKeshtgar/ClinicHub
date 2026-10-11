@@ -21,6 +21,13 @@ public class Clinic
 
     public bool IsActive { get; set; } = true;
     public DateTime CreatedUtc { get; set; }
+
+    /// <summary>
+    /// Permission keys this clinic's built-in roles have already been given. A key a new version adds is
+    /// missing here, so it is added to its built-in roles once and the clinic's later edits stand.
+    /// </summary>
+    [MaxLength(4000)] public string? KnownPermissions { get; set; }
+
     public List<Role> Roles { get; set; } = [];
 }
 
@@ -114,6 +121,12 @@ public static class SecurityEventTypes
     public const string RoleUpdated = "RoleUpdated";
     public const string RoleDeleted = "RoleDeleted";
     public const string ClinicCreated = "ClinicCreated";
+
+    /// <summary>An application (ClinicReport, LabFlow) received a sign-in for this person.</summary>
+    public const string SsoSignIn = "SsoSignIn";
+
+    /// <summary>An application asked for a sign-in the person's roles don't allow.</summary>
+    public const string SsoRefused = "SsoRefused";
 }
 
 /// <summary>Sign-ins, account, membership and role changes. Rows are only ever added.</summary>
