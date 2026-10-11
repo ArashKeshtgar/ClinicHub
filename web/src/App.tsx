@@ -6,6 +6,7 @@ import Audit, { Clinics } from './pages/Audit'
 import Billing from './pages/Billing'
 import EncounterPage from './pages/EncounterPage'
 import FrontDesk from './pages/FrontDesk'
+import Patients from './pages/Patients'
 import Results from './pages/Results'
 import Users from './pages/Users'
 import Visits from './pages/Visits'
@@ -84,6 +85,7 @@ function Shell({ me, settings, setMe, signOut }: { me: Me; settings: Settings; s
         ) : <span className="clinic-name">{clinic.name}</span>}
         <nav>
           {can(me, 'schedule.view') && <NavLink to="/frontdesk">Front desk</NavLink>}
+          {can(me, 'patients.view') && <NavLink to="/patients">Patients</NavLink>}
           {can(me, 'encounters.view') && <NavLink to="/visits">Visits</NavLink>}
           {can(me, 'results.review') && <NavLink to="/results">Results{waiting > 0 && <span className="count">{waiting}</span>}</NavLink>}
           {can(me, 'billing.view') && <NavLink to="/billing">Billing</NavLink>}
@@ -111,6 +113,7 @@ function Shell({ me, settings, setMe, signOut }: { me: Me; settings: Settings; s
               : can(me, 'audit.view') ? '/logs'
               : '/account'} />} />
           <Route path="/frontdesk" element={<FrontDesk />} />
+          <Route path="/patients" element={<Patients />} />
           <Route path="/visits" element={<Visits />} />
           <Route path="/visits/:id" element={<EncounterPage />} />
           <Route path="/billing" element={<Billing />} />

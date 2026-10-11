@@ -55,7 +55,10 @@ patient data leaves the offline copy.
       [docs/architecture.md](docs/architecture.md#results-back)
 - [x] Cancelling an order: at once if not yet delivered, otherwise the application is asked and may refuse
       (results entered, report started), see [docs/architecture.md](docs/architecture.md#cancelling-an-order)
-- [ ] Master patient index: duplicate detection and merge; PHIPA consent directives
+- [x] Master patient index: registration and corrections with health card checks, likely duplicates stopped at
+      registration, a review queue of records that may be the same person, and merge, see
+      [docs/architecture.md](docs/architecture.md#master-patient-index)
+- [ ] PHIPA consent directives (lockbox) and emergency override: the tables exist, nothing uses them yet
 - [x] ClinicHub as an OpenID Connect provider: code flow with PKCE, refresh, userinfo, sign-out; tokens carry the
       clinic and only the requesting application's permissions; ClinicReport and LabFlow permissions are part
       of each clinic's roles

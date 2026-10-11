@@ -109,6 +109,7 @@ public static class DemoSeeder
     {
         if (!await db.Providers.AnyAsync())
             await SeedClinic(db, profile, nowUtc);
+        await SeedDuplicates(db, profile, nowUtc);
 
         // Keep a rolling week of appointments: missing days are generated on start-up.
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(nowUtc, Toronto));
@@ -281,6 +282,48 @@ public static class DemoSeeder
 
         db.Patients.AddRange(SyntheticPatients(profile.Patients, nowUtc, profile.MrnPrefix, profile.Seed));
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Four patients registered a second time, the way it happens at a front desk: without the card, with the last
+    /// name mistyped, with day and month swapped, under a short first name. Added once, after the synthetic patients,
+    /// and found by the duplicate scan so the queue has something to review.
+    /// </summary>
+    private static async Task SeedDuplicates(ClinicHubDbContext db, DemoClinic profile, DateTime nowUtc)
+    {
+        var width = profile.MrnPrefix.Length + 6;
+        if (await db.Patients.AnyAsync(p => p.Mrn == $"{profile.MrnPrefix}{profile.Patients + 1:000000}"))
+            return;
+        var originals = await db.Patients.AsNoTracking().Where(p => p.Mrn.StartsWith(profile.MrnPrefix) && p.Mrn.Length == width && p.MergedIntoPatientId == null)
+            .OrderBy(p => p.Id).Take(profile.Patients).ToListAsync();
+        if (originals.Count < 240)
+            return;
+
+        Patient Copy(Patient o, int n) => new()
+        {
+            Mrn = $"{profile.MrnPrefix}{profile.Patients + n:000000}", FirstName = o.FirstName, LastName = o.LastName, DateOfBirth = o.DateOfBirth,
+            Sex = o.Sex, City = o.City, Province = o.Province, PreferredLanguage = o.PreferredLanguage, CreatedUtc = nowUtc, UpdatedUtc = nowUtc,
+        };
+        var noCard = Copy(originals[6], 1);
+        noCard.Phone = "(647) 555-0101";
+
+        var typo = Copy(originals[41], 2);
+        var last = typo.LastName;
+        typo.LastName = last.Length >= 4 && last[1] != last[2] ? $"{last[0]}{last[2]}{last[1]}{last[3..]}" : last[..^1];
+        typo.Phone = originals[41].Phone;
+
+        var swapped = Copy(originals[107], 3);
+        var dob = swapped.DateOfBirth;
+        swapped.DateOfBirth = dob.Day <= 12 && dob.Day != dob.Month ? new DateOnly(dob.Year, dob.Day, dob.Month) : dob.AddDays(dob.Day < 28 ? 1 : -1);
+        (swapped.Phone, swapped.PostalCode) = (originals[107].Phone, originals[107].PostalCode);
+
+        var shortName = Copy(originals[232], 4);
+        if (shortName.FirstName.Length >= 5) shortName.FirstName = shortName.FirstName[..3];
+        shortName.PostalCode = originals[232].PostalCode;
+
+        db.Patients.AddRange(noCard, typo, swapped, shortName);
+        await db.SaveChangesAsync();
+        await Endpoints.PatientEndpoints.Scan(db, nowUtc);
     }
 
     private static readonly string[] FemaleNames =

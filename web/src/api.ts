@@ -299,3 +299,34 @@ export const results = {
   inbox: (all = false, reviewed = false) => request<ResultRow[]>('GET', `/api/results?all=${all}&reviewed=${reviewed}`),
   review: (id: number) => request<void>('POST', `/api/results/${id}/review`),
 }
+
+// --- the master patient index: registration, corrections, duplicates, merge ---
+
+export type PatientFields = {
+  firstName: string; middleName?: string | null; lastName: string; preferredName?: string | null; dateOfBirth?: string | null; sex?: string | null
+  healthCardNumber?: string | null; healthCardVersion?: string | null; healthCardExpiry?: string | null; coverageProvince?: string | null; outOfProvinceNumber?: string | null
+  phone?: string | null; email?: string | null; addressLine1?: string | null; city?: string | null; province?: string | null; postalCode?: string | null
+  preferredLanguage?: string | null; familyProviderName?: string | null; familyProviderOhipNumber?: string | null; isDeceased: boolean; deceasedDate?: string | null
+}
+export type PatientDetail = {
+  id: number; mrn: string; name: string; age: number; coverage: string; fields: PatientFields
+  mergedInto?: PatientBrief; mergedFrom: PatientBrief[]; visits: number; lastVisitUtc?: string; openDuplicates: number
+  createdUtc: string; updatedUtc: string; rowVersion: string
+}
+export type PossibleDuplicate = { patient: PatientBrief; dateOfBirth: string; phone?: string; score: number; reasons: string[] }
+export type DuplicateStatus = 'Open' | 'Merged' | 'NotDuplicate'
+export type DuplicateRow = {
+  id: number; score: number; reasons: string[]; status: DuplicateStatus; foundUtc: string; a: PatientBrief; b: PatientBrief; reviewedBy?: string; reviewedUtc?: string
+}
+export type DuplicatePair = { row: DuplicateRow; a: PatientDetail; b: PatientDetail }
+
+export const mpi = {
+  get: (id: number) => request<PatientDetail>('GET', `/api/patients/${id}`),
+  register: (patient: PatientFields, confirmNew: boolean) => request<PatientDetail>('POST', '/api/patients', { patient, confirmNew }),
+  update: (id: number, patient: PatientFields, rowVersion: string) => request<PatientDetail>('PUT', `/api/patients/${id}`, { patient, rowVersion }),
+  duplicates: (status: DuplicateStatus = 'Open') => request<DuplicateRow[]>('GET', `/api/patients/duplicates?status=${status}`),
+  pair: (id: number) => request<DuplicatePair>('GET', `/api/patients/duplicates/${id}`),
+  scan: () => request<{ found: number; open: number }>('POST', '/api/patients/duplicates/scan'),
+  notDuplicate: (id: number) => request<void>('POST', `/api/patients/duplicates/${id}/not-duplicate`),
+  merge: (survivorId: number, mergedId: number) => request<PatientDetail>('POST', '/api/patients/merge', { survivorId, mergedId }),
+}

@@ -274,7 +274,8 @@ public static class UserEndpoints
         app.MapGet("/api/audit/access", async (int? patientId, int? userId, long? before, ClinicHubDbContext db) =>
         {
             var q = db.PatientAccessLog.AsNoTracking();
-            if (patientId is not null) q = q.Where(l => l.PatientId == patientId);
+            // A patient's log includes the records merged into theirs: same person, opened under an older MRN.
+            if (patientId is not null) q = q.Where(l => l.PatientId == patientId || db.Patients.Any(p => p.Id == l.PatientId && p.MergedIntoPatientId == patientId));
             if (userId is not null) q = q.Where(l => l.UserId == userId);
             if (before is not null) q = q.Where(l => l.Id < before);
             return await q.OrderByDescending(l => l.Id).Take(200)

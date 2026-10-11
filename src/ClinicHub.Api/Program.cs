@@ -85,6 +85,7 @@ app.MapGet("/healthz", () => Results.Ok("ok")).AllowAnonymous();
 app.MapGet("/api/settings", (IOptions<DemoOptions> demo) => new { Demo = demo.Value.Enabled, DemoUsers = demo.Value.Enabled ? DemoSeeder.DemoUsers : [], AccountsLocked = demo.Value.Enabled && demo.Value.LockAccounts }).AllowAnonymous();
 app.MapAuthEndpoints();
 app.MapFrontDeskEndpoints();
+app.MapPatientEndpoints();
 app.MapEncounterEndpoints();
 app.MapBillingEndpoints();
 app.MapUserEndpoints();

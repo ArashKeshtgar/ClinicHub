@@ -148,20 +148,6 @@ public static class FrontDeskEndpoints
             await db.SaveChangesAsync();
             return Results.Created($"/api/frontdesk/appointments/{appt.Id}", new { appt.Id, appt.QueueNumber });
         }).RequireAuthorization(Permissions.ScheduleManage);
-
-        app.MapGet("/api/patients", async (string? q, ClinicHubDbContext db, TimeProvider clock) =>
-        {
-            var term = (q ?? "").Trim();
-            if (term.Length < 2)
-                return Results.Ok(Array.Empty<PatientBrief>());
-            var digits = new string(term.Where(char.IsDigit).ToArray());
-            var today = Today(clock);
-            var rows = await db.Patients.AsNoTracking().Where(p => p.MergedIntoPatientId == null && (
-                    p.Mrn == term.ToUpper() || (digits.Length == 10 && p.HealthCardNumber == digits)
-                    || p.LastName.StartsWith(term) || (p.LastName + ", " + p.FirstName).StartsWith(term)))
-                .OrderBy(p => p.LastName).ThenBy(p => p.FirstName).Take(20).ToListAsync();
-            return Results.Ok(rows.Select(p => Brief(p, today)));
-        }).WithTags("Patients").RequireAuthorization(Permissions.PatientsView);
     }
 
     private static async Task<DayView> LoadDay(ClinicHubDbContext db, DateOnly day, TimeProvider clock)

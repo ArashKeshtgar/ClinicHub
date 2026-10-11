@@ -318,3 +318,11 @@ table.data tr.selected { background: var(--primary-soft); }
 .result-card header, .result-card footer { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; flex-wrap: wrap; }
 .result-card footer { align-items: center; justify-content: flex-start; }
 pre.result-text { margin: .3rem 0; white-space: pre-wrap; font-family: inherit; font-size: .9rem; background: var(--surface-2); padding: .5rem .7rem; border-radius: 8px; }
+
+/* Patients: registration form and the duplicate review */
+fieldset.patient-form { border: 0; padding: 0; margin: 0; display: grid; gap: .5rem; min-width: 0; }
+fieldset.patient-form legend { float: left; width: 100%; font-weight: 700; font-size: .9rem; margin-top: .4rem; padding: 0; }
+fieldset.patient-form legend + * { clear: both; }
+.tab .count { display: inline-block; margin-left: .35rem; min-width: 1.3rem; padding: 0 .35rem; border-radius: 999px; background: var(--waiting); color: #fff; font-size: .75rem; text-align: center; }
+table.compare th[scope], table.compare tbody th { font-size: .8rem; color: var(--muted); white-space: nowrap; background: transparent; }
+table.compare td.diff { background: var(--waiting-soft); font-weight: 600; }

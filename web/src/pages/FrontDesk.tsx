@@ -287,6 +287,7 @@ function RoomDialog({ a, rooms, busy, onClose, onPick }: {
 }
 
 function WalkInDialog({ onClose }: { onClose: () => void }) {
+  const { me } = useSession()
   const [q, setQ] = useState('')
   const [results, setResults] = useState<PatientBrief[]>([])
   const [picked, setPicked] = useState<PatientBrief | null>(null)
@@ -326,7 +327,8 @@ function WalkInDialog({ onClose }: { onClose: () => void }) {
                   </button>
                 </li>
               ))}
-              {q.trim().length >= 2 && results.length === 0 && <li className="muted small" style={{ padding: '.5rem' }}>No match.</li>}
+              {q.trim().length >= 2 && results.length === 0 && <li className="muted small" style={{ padding: '.5rem' }}>
+                No match.{can(me, 'patients.edit') && <> <Link to="/patients?new=1">Register a new patient</Link></>}</li>}
             </ul>
             <label>Reason for visit<input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Sore throat" /></label>
           </>

@@ -214,3 +214,38 @@ sequenceDiagram
   an OperationOutcome; the order goes back to where it was and shows the answer ("Results have been entered…; call
   the lab"). A refusal is an answer, not a failure: it is not retried.
 - A resulted order can no longer be cancelled.
+
+## Master patient index
+
+One record per person in each clinic's database. *Patients* (`/patients`) finds, registers and corrects them; the
+front desk registers (`patients.edit`), the privacy officer and administrators review duplicates and merge
+(`patients.merge`).
+
+- **Registering:** names, birth date and sex are required. An Ontario health card must pass its check digit and
+  can be on only one live record: a second one is refused, naming the record that has it. The MRN continues the
+  clinic's own series (`HV000401` after `HV000400`).
+- **How alike two records are** (`Domain/PatientMatching.cs`): a score out of 100 from the mistakes a front desk
+  makes: same or one-typo birth date (day and month swapped included), last name the same, one letter off or
+  sounding the same (Soundex), first name the same, a short form or a preferred name, same phone, email, postal
+  code. A different sex counts against; **two different health cards count strongly against** (almost always two
+  people). Only records sharing a birth date, phone, email, or birth year and sound-alike last name are compared.
+- **At registration** a match of 80 or more stops the clerk: they open the existing record, or confirm it is
+  someone else. Confirmed or not, every match of 60 or more goes to the review queue in case they were wrong. A
+  correction that makes a record look like another one also queues the pair.
+- **Review queue:** the two records side by side with their differences marked. *Not the same person* closes the
+  pair for good (a later scan does not ask again); *Scan all records* compares the whole clinic. The demo clinics
+  start with four such pairs (MRNs `…401`–`…404`: no card, a mistyped last name, day and month swapped, a short
+  first name).
+- **Merging** keeps the record chosen (by default the one with more visits) and moves everything of the other to
+  it, in one transaction: appointments, visits and eligibility checks, referrals, orders, claims, invoices, consent
+  directives. Empty fields of the kept record are filled from the other, the health card included. The merged
+  record stays, pointing at the kept one: searching its MRN opens the kept record, and it can no longer be edited.
+  Records with two different health cards are not merged; one card has to be corrected first.
+- **PHIPA:** opening, registering, correcting, reviewing and merging are written to the access log. The log is
+  not rewritten by a merge (it records which record was opened); a patient's log includes the records merged into
+  theirs.
+- **The other applications:** orders not delivered yet are rebuilt under the kept record. LabFlow and ClinicReport
+  are **not told** about a merge: orders they already received keep the old MRN, and results for them still reach
+  the right person because they come back by order. Sending FHIR `Patient` links to them is not built.
+- **Not built:** undoing a merge, and merging across clinics (each clinic's database is its own index).
+
