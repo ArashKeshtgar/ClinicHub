@@ -39,7 +39,7 @@ flowchart TB
 |---|---|---|
 | 1 | Catalog database, database per clinic, clinic picker and switcher; ClinicReport's account security brought into ClinicHub: temporary passwords, two-factor (TOTP), lockout, sign out everywhere, people and per-clinic roles, security log; platform administrators open clinics | **Done** |
 | 2 | ClinicHub as an OpenID Connect provider: registered applications, per-application permissions in roles (`clinicreport:*`, `labflow:*`), the clinic in the token | **Done** |
-| 3 | ClinicReport connected mode: sign-in through ClinicHub, its users mapped to ClinicHub accounts, standalone mode unchanged | Not started |
+| 3 | ClinicReport connected mode: sign-in through ClinicHub, its users mapped to ClinicHub accounts, a database per clinic there too, standalone mode unchanged | **Done** |
 | 4 | LabFlow signs in through ClinicHub (today it has only a development sign-in) | Not started |
 
 ## How a request finds its database (phase 1)
@@ -99,3 +99,19 @@ registered applications, authorizations and tokens in the catalog database.
   clinic's own later edits stand. This is how the existing demo clinics' Physician role gained
   `clinicreport:reports.sign`.
 - ClinicHub's top bar links to the applications the person may open from the current clinic.
+
+## ClinicReport connected (phase 3)
+
+ClinicReport ([its README](https://github.com/ArashKeshtgar/ClinicReport#connected-to-clinichub)) switches to
+connected mode when it is given ClinicHub's address. Then:
+
+- Its sign-in page has one button, *Sign in with ClinicHub*. The OpenID Connect handler sends the person here, and
+  on the way back ClinicHub's person becomes a user of **that clinic's own ClinicReport database**
+  (`clinicreport-{clinic_slug}.db`), linked by ClinicHub's account id, so signatures and ClinicReport's
+  report-access log refer to them. A local account with the same user name is taken over, keeping its history.
+- Its permissions are the token's (`reports.sign`, …); roles are shown, not edited; passwords, two-factor and its
+  own roles are closed. ClinicReport still sets which services a person works on, and can turn their access off.
+- Every five minutes the session is renewed with ClinicHub's refresh token; `invalid_grant` ends it, so taking a
+  role away in ClinicHub reaches ClinicReport within minutes. ClinicHub being unreachable is tolerated for 30.
+- Signing out of ClinicReport ends the ClinicHub session (`/connect/logout`).
+- Without the `ClinicHub` setting nothing changes: the public demo at report.arashkeshtgar.ca keeps its own accounts.

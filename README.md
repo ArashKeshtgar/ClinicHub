@@ -53,7 +53,9 @@ patient data leaves the offline copy.
 - [x] ClinicHub as an OpenID Connect provider: code flow with PKCE, refresh, userinfo, sign-out; tokens carry the
       clinic and only the requesting application's permissions; ClinicReport and LabFlow permissions are part
       of each clinic's roles
-- [ ] ClinicReport connected mode and LabFlow signing in through ClinicHub
+- [x] ClinicReport connected mode: signs in through ClinicHub, one ClinicReport database per clinic, sessions
+      re-checked with ClinicHub
+- [ ] LabFlow signing in through ClinicHub
 - [ ] Clinic operations dashboard; Docker image and public demo
 
 ## Run it
