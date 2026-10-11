@@ -276,7 +276,8 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
             });
             e.HasOne(x => x.RequesterProvider).WithMany().HasForeignKey(x => x.RequesterProviderId);
             e.HasIndex(x => new { x.PatientId, x.CreatedUtc });
-            e.HasIndex(x => new { x.TargetSystem, x.ExternalId }).IsUnique().HasFilter("ExternalId IS NOT NULL");
+            e.HasIndex(x => new { x.TargetSystem, x.ExternalId }).HasFilter("ExternalId IS NOT NULL");
+            e.HasOne<OutboxMessage>().WithMany().HasForeignKey(x => x.OutboxMessageId);
         });
         b.Entity<DiagnosticResult>(e =>
         {

@@ -1765,6 +1765,9 @@ namespace ClinicHub.Api.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<long?>("OutboxMessageId")
+                        .HasColumnType("bigint");
+
                     b.Property<int>("PatientId")
                         .HasColumnType("int");
 
@@ -1793,12 +1796,13 @@ namespace ClinicHub.Api.Data.Migrations
 
                     b.HasIndex("EncounterId");
 
+                    b.HasIndex("OutboxMessageId");
+
                     b.HasIndex("RequesterProviderId");
 
                     b.HasIndex("PatientId", "CreatedUtc");
 
                     b.HasIndex("TargetSystem", "ExternalId")
-                        .IsUnique()
                         .HasFilter("ExternalId IS NOT NULL");
 
                     b.ToTable("ServiceRequest", "orders", t =>
@@ -2431,6 +2435,10 @@ namespace ClinicHub.Api.Data.Migrations
                         .HasForeignKey("EncounterId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.OutboxMessage", null)
+                        .WithMany()
+                        .HasForeignKey("OutboxMessageId");
 
                     b.HasOne("ClinicHub.Api.Data.Patient", "Patient")
                         .WithMany()

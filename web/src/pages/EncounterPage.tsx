@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, can, encounters, localDateTime, localTime, money, type Codes, type Coding, type Encounter, type Soap, type Vitals, type VitalsInput } from '../api'
+import { ApiError, can, encounters, firstError, localDateTime, localTime, money, orders, type CatalogItem, type Codes, type Coding, type Encounter, type Order, type Soap, type Vitals, type VitalsInput } from '../api'
 import { useSession } from '../App'
 
 const PROGRAM: Record<string, string> = { HCP: 'OHIP', RMB: 'Reciprocal (other province)', WCB: 'WSIB', Uninsured: 'Uninsured · patient pays' }
@@ -103,6 +103,8 @@ export default function EncounterPage() {
 
         <aside className="chart-side">
           {codes && <CodingCard enc={enc} codes={codes} editable={code} busy={busy} onSave={c => run(() => encounters.saveCoding(id, c))} />}
+
+          <OrdersCard encounterId={enc.id} canOrder={can(me, 'orders.manage') && !!me.providerId && enc.status !== 'Voided'} />
 
           {open && (
             <section className="card">
@@ -401,5 +403,101 @@ function Addenda({ enc, canAdd, busy, onAdd }: { enc: Encounter; canAdd: boolean
         </form>
       )}
     </div>
+  )
+}
+
+const ORDER_STATUS: Record<string, [string, string]> = {
+  Draft: ['Sending…', 'none'], Accepted: ['Received', 'ohip'], InProgress: ['In progress', 'rmb'], Completed: ['Resulted', 'ohip'],
+  Cancelled: ['Cancelled', ''], Failed: ['Not delivered', 'none'],
+}
+
+/**
+ * Lab tests (LabFlow) and echo / ECG (ClinicReport) from this visit. Each goes as a FHIR ServiceRequest; the status
+ * says whether the other application has it yet.
+ */
+function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: boolean }) {
+  const [list, setList] = useState<Order[] | null>(null)
+  const [catalog, setCatalog] = useState<CatalogItem[]>([])
+  const [picking, setPicking] = useState(false)
+  const [chosen, setChosen] = useState<string[]>([])
+  const [priority, setPriority] = useState<'Routine' | 'Stat'>('Routine')
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const key = (i: { target: string; code: string }) => `${i.target}|${i.code}`
+
+  const load = useCallback(() => orders.forEncounter(encounterId).then(setList).catch(() => setList([])), [encounterId])
+  useEffect(() => { load(); orders.catalog().then(setCatalog).catch(() => setCatalog([])) }, [load])
+  // While something is on its way, look again shortly.
+  useEffect(() => {
+    if (!list?.some(o => o.status === 'Draft')) return
+    const t = setTimeout(load, 4000)
+    return () => clearTimeout(t)
+  }, [list, load])
+
+  const send = async () => {
+    setError(null)
+    try {
+      setList(await orders.place(encounterId, catalog.filter(i => chosen.includes(key(i))).map(i => ({ target: i.target, code: i.code })), priority, notes))
+      setChosen([]); setNotes(''); setPriority('Routine'); setPicking(false)
+    } catch (e) {
+      setError(firstError(e, 'Not ordered.'))
+    }
+  }
+
+  const groups = [...new Set(catalog.map(i => `${i.target}: ${i.group}`))]
+  return (
+    <section className="card">
+      <div className="panel-head">
+        <h2>Orders</h2>
+        {canOrder && !picking && <button className="small" onClick={() => setPicking(true)}>Order tests…</button>}
+      </div>
+      <div className="pad" style={{ display: 'grid', gap: '.6rem' }}>
+        {list?.length === 0 && !picking && <p className="muted small" style={{ margin: 0 }}>Nothing ordered from this visit.</p>}
+        {list && list.length > 0 && (
+          <ul className="code-list">
+            {list.map(o => {
+              const [label, cls] = ORDER_STATUS[o.status] ?? [o.status, '']
+              return (
+                <li key={o.id} style={{ flexWrap: 'wrap' }}>
+                  <span className="desc">{o.display}<span className="muted small"> · {o.target === 'LabFlow' ? 'lab' : 'ClinicReport'}{o.priority === 'Stat' ? ' · STAT' : ''}</span></span>
+                  <span className={`badge ${cls}`} title={o.lastError ?? (o.externalId ? `${o.target} order ${o.externalId}` : undefined)}>{label}</span>
+                  {o.lastError && o.status !== 'Accepted' && (
+                    <div className="muted small" style={{ flexBasis: '100%' }}>
+                      Attempt {o.attempts}: {o.lastError}
+                      {canOrder && <button className="quiet small" onClick={async () => { await orders.resend(o.id); load() }}>Try again now</button>}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {picking && (
+          <>
+            {groups.map(g => (
+              <fieldset key={g} className="checks">
+                <legend>{g}</legend>
+                {catalog.filter(i => `${i.target}: ${i.group}` === g).map(i => (
+                  <label key={key(i)} className="check">
+                    <input type="checkbox" checked={chosen.includes(key(i))}
+                      onChange={() => setChosen(chosen.includes(key(i)) ? chosen.filter(x => x !== key(i)) : [...chosen, key(i)])} />
+                    <span>{i.display}{!i.connected && <span className="muted small"> (not connected yet: the order waits)</span>}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ))}
+            <label>Clinical information for the lab or reader
+              <textarea rows={2} value={notes} maxLength={500} onChange={e => setNotes(e.target.value)} placeholder="e.g. Fatigue, ?anemia" />
+            </label>
+            <label className="check"><input type="checkbox" checked={priority === 'Stat'} onChange={e => setPriority(e.target.checked ? 'Stat' : 'Routine')} /> STAT</label>
+            {error && <p className="error">{error}</p>}
+            <div className="dialog-actions">
+              <button onClick={() => { setPicking(false); setChosen([]) }}>Cancel</button>
+              <button className="primary" disabled={chosen.length === 0} onClick={send}>Send {chosen.length || ''} order{chosen.length === 1 ? '' : 's'}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   )
 }

@@ -48,7 +48,10 @@ patient data leaves the offline copy.
       simulated submission and remittance advice, import of received remittance files, line-by-line
       reconciliation with explanatory codes, provider payments net of clinic overhead, resubmission of
       refused claims — [docs/ohip-billing.md](docs/ohip-billing.md)
-- [ ] Orders to LabFlow and ClinicReport over FHIR, results inbox
+- [x] Orders over FHIR R4: lab tests to LabFlow, echo and ECG to ClinicReport, as transaction Bundles from each
+      clinic's outbox, retried until delivered, authenticated with tokens ClinicHub signs —
+      [docs/architecture.md](docs/architecture.md#orders-over-fhir)
+- [ ] Results back from LabFlow and ClinicReport (DiagnosticReport) and the results inbox
 - [ ] Master patient index: duplicate detection and merge; PHIPA consent directives
 - [x] ClinicHub as an OpenID Connect provider: code flow with PKCE, refresh, userinfo, sign-out; tokens carry the
       clinic and only the requesting application's permissions; ClinicReport and LabFlow permissions are part

@@ -266,3 +266,20 @@ export const admin = {
 
 export const firstError = (err: unknown, fallback: string) =>
   err instanceof ApiError ? Object.values(err.fieldErrors).flat()[0] ?? err.message : fallback
+
+// --- orders to LabFlow and ClinicReport (FHIR) ---
+
+export type CatalogItem = { target: 'LabFlow' | 'ClinicReport'; code: string; display: string; group: string; connected: boolean }
+export type OrderStatus = 'Draft' | 'Accepted' | 'InProgress' | 'Completed' | 'Cancelled' | 'Failed'
+export type Order = {
+  id: number; target: 'LabFlow' | 'ClinicReport'; code: string; display: string; priority: 'Routine' | 'Stat'; status: OrderStatus
+  notes?: string; createdUtc: string; sentUtc?: string; externalId?: string; requester: string; attempts: number; lastError?: string
+}
+
+export const orders = {
+  catalog: () => request<CatalogItem[]>('GET', '/api/orders/catalog'),
+  forEncounter: (encounterId: number) => request<Order[]>('GET', `/api/encounters/${encounterId}/orders`),
+  place: (encounterId: number, items: { target: string; code: string }[], priority: 'Routine' | 'Stat', notes: string) =>
+    request<Order[]>('POST', `/api/encounters/${encounterId}/orders`, { items, priority, notes }),
+  resend: (id: number) => request<void>('POST', `/api/orders/${id}/resend`),
+}

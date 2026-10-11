@@ -40,6 +40,9 @@ public class ServiceRequest
     [MaxLength(20)] public string Status { get; set; } = ServiceRequestStatus.Draft;
     [MaxLength(500)] public string? ClinicalNotes { get; set; }
 
+    /// <summary>The message that carries this order (one per destination for the orders placed together).</summary>
+    public long? OutboxMessageId { get; set; }
+
     /// <summary>The order's id in the other system once it has accepted it.</summary>
     [MaxLength(64)] public string? ExternalId { get; set; }
 

@@ -134,3 +134,41 @@ Where a lab's data lives is LabFlow's setting, because in Ontario a lab is usual
 With phase 4 every application signs in through ClinicHub, and every clinic can have its own database in each
 of them. What remains of the architecture is the clinical traffic between them: orders from ClinicHub to LabFlow
 and ClinicReport over FHIR, and results back (see the README's status list).
+
+## Orders over FHIR
+
+A clinician orders from the visit page: lab tests go to LabFlow, echo and ECG to ClinicReport.
+
+```mermaid
+sequenceDiagram
+    participant D as Physician (ClinicHub)
+    participant H as ClinicHub clinic DB
+    participant W as Outbox worker
+    participant A as LabFlow / ClinicReport
+    D->>H: place orders (ServiceRequests + outbox message, one transaction)
+    W->>H: due messages
+    W->>A: POST /fhir  Bundle(transaction): Patient, Practitioner, ServiceRequest…<br/>Authorization: Bearer (signed by ClinicHub, aud = app, clinic_slug)
+    A-->>W: transaction-response (locations)
+    W->>H: orders Accepted, their ids in the application
+```
+
+- **One message per application per ordering:** a FHIR R4 transaction Bundle with the patient (clinic MRN, Ontario
+  health card), the requester (CPSO and OHIP billing numbers) and one ServiceRequest per test (LOINC, or LabFlow's
+  own code for its panels; ClinicReport's template key for exams), with the clinical note and priority. It is
+  written in the same transaction as the orders, so nothing ordered is lost if an application is down.
+- **Delivery:** a background worker visits every clinic's outbox, posts each due message and records the
+  application's ids from the transaction-response. Failures wait 10 s, 20 s, 40 s… up to 30 min; after 12 the
+  orders are marked *Not delivered*, and *Try again now* restarts them. Receivers recognise a resent Bundle.
+- **Who is calling:** ClinicHub signs a five-minute token with its sign-in key: audience the application,
+  scope `orders`, and the clinic. The application validates it with ClinicHub's published keys
+  (`/.well-known/jwks`), and the clinic picks the database the order lands in.
+- **On arrival:** LabFlow keeps an *electronic order* (database/050) until the patient comes to collection,
+  where reception turns it into a requisition with the usual checks; the patient is matched by health card or
+  name and birth date, the physician by billing or CPSO number. ClinicReport puts the exam on its worklist;
+  *Start report* opens a draft with the indication and referring physician filled in.
+- **Identifier systems** are in `Integrations/OrderCatalog.cs` (`FhirSystems`). The Ontario health card and CPSO
+  systems are the Canadian baseline's; the OHIP billing number and the card's version-code extension are
+  ClinicHub's own URNs, to be replaced by the provincial ones in a real deployment.
+
+Still to come: results back (DiagnosticReport from ClinicReport when a report is signed, from LabFlow when
+results are verified) into a results inbox, and cancelling an order.

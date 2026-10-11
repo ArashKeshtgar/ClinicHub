@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -31,7 +32,17 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Sso:Clients:0:RedirectUris:0", SsoTests.RedirectUri);
         builder.UseSetting("Sso:Clients:0:PostLogoutRedirectUris:0", "https://report.test/");
         builder.UseSetting("Sso:Clients:0:LaunchUrl", "https://report.test/");
+        builder.UseSetting("Sso:Issuer", "http://localhost/");
+        // Orders: no background worker (tests dispatch on demand), and stand-in applications.
+        builder.UseSetting("Integrations:PollSeconds", "0");
+        builder.UseSetting("Integrations:LabFlow:FhirBaseUrl", "https://lab.test/fhir");
+        builder.UseSetting("Integrations:ClinicReport:FhirBaseUrl", "https://report.test/fhir");
+        builder.ConfigureTestServices(services =>
+            services.AddHttpClient(ClinicHub.Api.Integrations.OutboxDispatcher.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Fhir));
     }
+
+    /// <summary>LabFlow and ClinicReport as seen by ClinicHub's outbox: records each request, answers as told.</summary>
+    public FakeFhirServer Fhir { get; } = new();
 
     /// <summary>Signs in a demo user; someone who works at several clinics is put in <paramref name="clinic"/>.</summary>
     public async Task<HttpClient> SignInAsync(string user, string clinic = "harbourview", bool followRedirects = true)
@@ -192,4 +203,30 @@ internal sealed class TestDatabaseReader(ApiFactory factory, string clinic = "ha
 
     public ClinicHub.Api.Catalog.CatalogDbContext Catalog() =>
         factory.Services.CreateScope().ServiceProvider.GetRequiredService<ClinicHub.Api.Catalog.CatalogDbContext>();
+}
+
+/// <summary>Answers FHIR transaction Bundles the way LabFlow and ClinicReport do, or fails on request.</summary>
+public sealed class FakeFhirServer : HttpMessageHandler
+{
+    public record Received(Uri Url, string Token, JsonNode Bundle);
+
+    public List<Received> Requests { get; } = [];
+    public HttpStatusCode? FailWith { get; set; }
+    private int _next = 100;
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        var bundle = JsonNode.Parse(await request.Content!.ReadAsStringAsync(ct))!;
+        lock (Requests)
+            Requests.Add(new Received(request.RequestUri!, request.Headers.Authorization?.Parameter ?? "", bundle));
+        if (FailWith is { } status)
+            return new HttpResponseMessage(status) { Content = new StringContent("""{"resourceType":"OperationOutcome","issue":[{"severity":"error","diagnostics":"down for maintenance"}]}""") };
+        var entries = new JsonArray();
+        foreach (var e in bundle["entry"]!.AsArray())
+            entries.Add(new JsonObject { ["response"] = new JsonObject { ["status"] = "201 Created", ["location"] = $"{(string)e!["resource"]!["resourceType"]!}/{_next++}" } });
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(new JsonObject { ["resourceType"] = "Bundle", ["type"] = "transaction-response", ["entry"] = entries }.ToJsonString()),
+        };
+    }
 }

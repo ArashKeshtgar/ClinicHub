@@ -3,6 +3,7 @@ using ClinicHub.Api.Auth;
 using ClinicHub.Api.Catalog;
 using ClinicHub.Api.Data;
 using ClinicHub.Api.Endpoints;
+using ClinicHub.Api.Integrations;
 using ClinicHub.Api.Sso;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
@@ -26,6 +27,12 @@ builder.Services.AddOpenApi();
 builder.Services.AddClinicAuth();
 // ClinicHub is the sign-in for ClinicReport and LabFlow (OpenID Connect).
 builder.Services.AddClinicSso(builder.Configuration, builder.Environment);
+// Orders to LabFlow and ClinicReport over FHIR, delivered from each clinic's outbox.
+builder.Services.Configure<IntegrationOptions>(builder.Configuration.GetSection("Integrations"));
+builder.Services.AddHttpClient(OutboxDispatcher.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(30));
+builder.Services.AddScoped<ServiceTokens>();
+builder.Services.AddSingleton<OutboxDispatcher>();
+builder.Services.AddHostedService<OutboxWorker>();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull);
 
 var loginsPerMinute = builder.Configuration.GetValue("RateLimits:LoginsPerMinute", 10);
@@ -80,6 +87,7 @@ app.MapEncounterEndpoints();
 app.MapBillingEndpoints();
 app.MapUserEndpoints();
 app.MapSsoEndpoints();
+app.MapOrderEndpoints();
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();
