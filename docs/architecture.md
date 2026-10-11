@@ -170,5 +170,34 @@ sequenceDiagram
   systems are the Canadian baseline's; the OHIP billing number and the card's version-code extension are
   ClinicHub's own URNs, to be replaced by the provincial ones in a real deployment.
 
-Still to come: results back (DiagnosticReport from ClinicReport when a report is signed, from LabFlow when
-results are verified) into a results inbox, and cancelling an order.
+## Results back
+
+LabFlow (when results are released) and ClinicReport (when a report is signed) send the result to ClinicHub.
+
+```mermaid
+sequenceDiagram
+    participant A as LabFlow / ClinicReport
+    participant O as App's outbox worker
+    participant H as ClinicHub
+    A->>A: release / sign (result + outbox message, one transaction)
+    O->>H: POST /connect/token  grant_type=client_credentials, scope=results
+    O->>H: POST /fhir  Bundle(transaction): DiagnosticReport (+ Observations)
+    H->>H: clinic DB from basedOn, result stored, order Completed
+```
+
+- **The message:** a FHIR R4 transaction Bundle with one DiagnosticReport per ordered test, `basedOn` the
+  ServiceRequest's identifier (`urn:clinichub:{clinic}:service-request|{id}`), which names the clinic database.
+  LabFlow adds an Observation per analyte (LOINC, value, unit, reference range, interpretation H/L);
+  ClinicReport sends the conclusion and addenda and a link to the full report (`presentedForm`).
+- **Who is calling:** the application gets a token from ClinicHub with its own client id and secret
+  (client credentials, scope `results`). ClinicHub accepts a result only from the application the order was sent
+  to.
+- **Versions:** `final` first; a LabFlow correction or a ClinicReport addendum arrives as `amended`, replaces the
+  stored result and puts it back in the inbox. `cancelled` cancels the order.
+- **Delivery:** each application keeps its own outbox (LabFlow `lab.OutboundMessage`, database/051; ClinicReport
+  `ResultMessages`) with the same backoff as ClinicHub's, so a result is not lost while ClinicHub is down.
+- **Results inbox** (`/results`): the clinic's results, abnormal first, *My orders* or *Whole clinic*; the
+  physician acknowledges each (`results.review`, logged under PHIPA). The visit page shows the result with the
+  order.
+
+Still to come: cancelling an order.

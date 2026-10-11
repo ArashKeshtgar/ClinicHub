@@ -51,7 +51,8 @@ patient data leaves the offline copy.
 - [x] Orders over FHIR R4: lab tests to LabFlow, echo and ECG to ClinicReport, as transaction Bundles from each
       clinic's outbox, retried until delivered, authenticated with tokens ClinicHub signs —
       [docs/architecture.md](docs/architecture.md#orders-over-fhir)
-- [ ] Results back from LabFlow and ClinicReport (DiagnosticReport) and the results inbox
+- [x] Results back from LabFlow and ClinicReport (DiagnosticReport) and the results inbox, see
+      [docs/architecture.md](docs/architecture.md#results-back)
 - [ ] Master patient index: duplicate detection and merge; PHIPA consent directives
 - [x] ClinicHub as an OpenID Connect provider: code flow with PKCE, refresh, userinfo, sign-out; tokens carry the
       clinic and only the requesting application's permissions; ClinicReport and LabFlow permissions are part
