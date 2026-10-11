@@ -50,6 +50,9 @@ using (var scope = app.Services.CreateScope())
             services.GetRequiredService<IPasswordHasher<Account>>(), services.GetRequiredService<TimeProvider>().GetUtcNow().UtcDateTime);
 }
 
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+// Inside the exception handler, so this answers before it turns the exception into a 500.
 // Clinic data asked for before a clinic was chosen: tell the page to show the clinic picker.
 app.Use(async (ctx, next) =>
 {
@@ -60,8 +63,6 @@ app.Use(async (ctx, next) =>
         await ctx.Response.WriteAsJsonAsync(new { title = ex.Message, chooseClinic = true });
     }
 });
-app.UseExceptionHandler();
-app.UseStatusCodePages();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 if (app.Environment.IsDevelopment())

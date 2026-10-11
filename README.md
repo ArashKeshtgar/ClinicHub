@@ -55,7 +55,7 @@ patient data leaves the offline copy.
       of each clinic's roles
 - [x] ClinicReport connected mode: signs in through ClinicHub, one ClinicReport database per clinic, sessions
       re-checked with ClinicHub
-- [ ] LabFlow signing in through ClinicHub
+- [x] LabFlow signing in through ClinicHub, with one lab database or one per clinic
 - [ ] Clinic operations dashboard; Docker image and public demo
 
 ## Run it

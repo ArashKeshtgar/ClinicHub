@@ -40,7 +40,7 @@ flowchart TB
 | 1 | Catalog database, database per clinic, clinic picker and switcher; ClinicReport's account security brought into ClinicHub: temporary passwords, two-factor (TOTP), lockout, sign out everywhere, people and per-clinic roles, security log; platform administrators open clinics | **Done** |
 | 2 | ClinicHub as an OpenID Connect provider: registered applications, per-application permissions in roles (`clinicreport:*`, `labflow:*`), the clinic in the token | **Done** |
 | 3 | ClinicReport connected mode: sign-in through ClinicHub, its users mapped to ClinicHub accounts, a database per clinic there too, standalone mode unchanged | **Done** |
-| 4 | LabFlow signs in through ClinicHub (today it has only a development sign-in) | Not started |
+| 4 | LabFlow signs in through ClinicHub; one lab database or one per clinic, chosen in its configuration | **Done** |
 
 ## How a request finds its database (phase 1)
 
@@ -115,3 +115,22 @@ connected mode when it is given ClinicHub's address. Then:
   role away in ClinicHub reaches ClinicReport within minutes. ClinicHub being unreachable is tolerated for 30.
 - Signing out of ClinicReport ends the ClinicHub session (`/connect/logout`).
 - Without the `ClinicHub` setting nothing changes: the public demo at report.arashkeshtgar.ca keeps its own accounts.
+
+## LabFlow connected (phase 4)
+
+LabFlow ([its README](https://github.com/ArashKeshtgar/LabFlow#connected-to-clinichub)) signs staff in through
+ClinicHub the same way ClinicReport does: the token's `labflow:*` permissions arrive as `frontdesk`,
+`results.view`, `admin`; each person becomes a `sec.AppUser` linked by ClinicHub's account id; the session is
+re-checked every five minutes; signing out there signs out here.
+
+Where a lab's data lives is LabFlow's setting, because in Ontario a lab is usually its own business:
+
+- **One lab database** (default): staff of every clinic work in the lab's database; the clinic they signed in
+  for is known but does not split the data.
+- **One database per clinic** (`ClinicHub:DatabasePattern` with `{clinic}`): for clinics that run their own
+  collection room. A clinic's LabFlow database is built from LabFlow's SQL scripts at its first sign-in;
+  anonymous online booking must name a clinic whose database exists.
+
+With phase 4 every application signs in through ClinicHub, and every clinic can have its own database in each
+of them. What remains of the architecture is the clinical traffic between them: orders from ClinicHub to LabFlow
+and ClinicReport over FHIR, and results back (see the README's status list).
