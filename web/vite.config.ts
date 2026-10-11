@@ -13,6 +13,8 @@ export default defineConfig({
       // Keep the browser's Host so the sign-in server advertises its endpoints on :5301, where its pages are.
       '/connect': { target: 'http://localhost:5300', changeOrigin: false },
       '/.well-known': { target: 'http://localhost:5300', changeOrigin: false },
+      // Results from LabFlow and ClinicReport (FHIR DiagnosticReport).
+      '/fhir': { target: 'http://localhost:5300', changeOrigin: false },
     },
   },
 })

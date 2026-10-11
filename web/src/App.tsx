@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router'
-import { api, ApiError, can, type Me, type Settings } from './api'
+import { api, ApiError, can, results, type Me, type Settings } from './api'
 import { Account, ClinicPicker, PendingAction } from './pages/AccountPages'
 import Audit, { Clinics } from './pages/Audit'
 import Billing from './pages/Billing'
 import EncounterPage from './pages/EncounterPage'
 import FrontDesk from './pages/FrontDesk'
+import Results from './pages/Results'
 import Users from './pages/Users'
 import Visits from './pages/Visits'
 
@@ -61,6 +62,16 @@ function Shell({ me, settings, setMe, signOut }: { me: Me; settings: Settings; s
   const clinic = me.clinic!
   const [apps, setApps] = useState<{ clientId: string; name: string; url?: string }[]>([])
   useEffect(() => { api.apps().then(setApps).catch(() => setApps([])) }, [])
+  // Results waiting for this clinician: counted in the top bar, refreshed every minute and after acknowledging.
+  const [waiting, setWaiting] = useState(0)
+  useEffect(() => {
+    if (!can(me, 'results.review')) return
+    const count = () => results.inbox().then(r => setWaiting(r.length)).catch(() => {})
+    count()
+    const t = setInterval(count, 60_000)
+    window.addEventListener('clinichub:results-changed', count)
+    return () => { clearInterval(t); window.removeEventListener('clinichub:results-changed', count) }
+  }, [me])
   return (
     <>
       <header className="topbar">
@@ -74,6 +85,7 @@ function Shell({ me, settings, setMe, signOut }: { me: Me; settings: Settings; s
         <nav>
           {can(me, 'schedule.view') && <NavLink to="/frontdesk">Front desk</NavLink>}
           {can(me, 'encounters.view') && <NavLink to="/visits">Visits</NavLink>}
+          {can(me, 'results.review') && <NavLink to="/results">Results{waiting > 0 && <span className="count">{waiting}</span>}</NavLink>}
           {can(me, 'billing.view') && <NavLink to="/billing">Billing</NavLink>}
           {can(me, 'users.manage') && <NavLink to="/people">People</NavLink>}
           {can(me, 'audit.view') && <NavLink to="/logs">Logs</NavLink>}
@@ -102,6 +114,7 @@ function Shell({ me, settings, setMe, signOut }: { me: Me; settings: Settings; s
           <Route path="/visits" element={<Visits />} />
           <Route path="/visits/:id" element={<EncounterPage />} />
           <Route path="/billing" element={<Billing />} />
+          <Route path="/results" element={<Results />} />
           <Route path="/people" element={<Users />} />
           <Route path="/logs" element={<Audit />} />
           <Route path="/clinics" element={<Clinics />} />

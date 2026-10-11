@@ -32,6 +32,10 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Sso:Clients:0:RedirectUris:0", SsoTests.RedirectUri);
         builder.UseSetting("Sso:Clients:0:PostLogoutRedirectUris:0", "https://report.test/");
         builder.UseSetting("Sso:Clients:0:LaunchUrl", "https://report.test/");
+        builder.UseSetting("Sso:Clients:1:ClientId", "labflow");
+        builder.UseSetting("Sso:Clients:1:DisplayName", "LabFlow");
+        builder.UseSetting("Sso:Clients:1:ClientSecret", "test-labflow-secret");
+        builder.UseSetting("Sso:Clients:1:RedirectUris:0", "https://lab.test/signin-oidc");
         builder.UseSetting("Sso:Issuer", "http://localhost/");
         // Orders: no background worker (tests dispatch on demand), and stand-in applications.
         builder.UseSetting("Integrations:PollSeconds", "0");

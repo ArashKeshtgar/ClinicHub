@@ -92,8 +92,17 @@ public static class SsoEndpoints
     private static async Task<IResult> Token(HttpContext http, CatalogDbContext catalog)
     {
         var request = http.GetOpenIddictServerRequest() ?? throw new InvalidOperationException("Not an OpenID Connect request.");
+        if (request.IsClientCredentialsGrantType())
+        {
+            // An application on its own behalf (OpenIddict has already checked its secret): it may only send results.
+            var app = new ClaimsIdentity(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme, Claims.Name, Claims.Role);
+            app.SetClaim(Claims.Subject, request.ClientId).SetClaim(Claims.ClientId, request.ClientId);
+            app.SetScopes(request.GetScopes().Intersect([SsoClaims.ResultsScope]));
+            app.SetDestinations(_ => [OpenIddictConstants.Destinations.AccessToken]);
+            return Results.SignIn(new ClaimsPrincipal(app), properties: null, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        }
         if (!request.IsAuthorizationCodeGrantType() && !request.IsRefreshTokenGrantType())
-            return Refuse(Errors.UnsupportedGrantType, "Only the authorization code and refresh token grants are supported.");
+            return Refuse(Errors.UnsupportedGrantType, "Only the authorization code, refresh token and client credentials grants are supported.");
 
         var result = await http.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         var previous = result.Principal!;

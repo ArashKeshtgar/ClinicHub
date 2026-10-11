@@ -15,6 +15,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
     <PackageReference Include="OpenIddict.AspNetCore" Version="7.7.2" />
     <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.7.2" />
+    <PackageReference Include="OpenIddict.Validation.AspNetCore" Version="7.7.2" />
+    <PackageReference Include="OpenIddict.Validation.ServerIntegration" Version="7.7.2" />
   </ItemGroup>
 
 </Project>

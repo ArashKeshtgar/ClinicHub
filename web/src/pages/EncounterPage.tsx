@@ -461,6 +461,14 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
                 <li key={o.id} style={{ flexWrap: 'wrap' }}>
                   <span className="desc">{o.display}<span className="muted small"> · {o.target === 'LabFlow' ? 'lab' : 'ClinicReport'}{o.priority === 'Stat' ? ' · STAT' : ''}</span></span>
                   <span className={`badge ${cls}`} title={o.lastError ?? (o.externalId ? `${o.target} order ${o.externalId}` : undefined)}>{label}</span>
+                  {o.result && (
+                    <div className="small" style={{ flexBasis: '100%' }}>
+                      {o.result.isAbnormal && <span className="badge none" style={{ marginRight: '.3rem' }}>Abnormal</span>}
+                      <span className="muted">{o.result.status} result {localDateTime(o.result.receivedUtc)}{o.result.reviewedUtc ? ' · acknowledged' : ''}</span>
+                      {o.result.summary && <pre className="result-text">{o.result.summary}</pre>}
+                      {o.result.externalUrl && <a href={o.result.externalUrl} target="_blank" rel="noreferrer">Full report ↗</a>}
+                    </div>
+                  )}
                   {o.lastError && o.status !== 'Accepted' && (
                     <div className="muted small" style={{ flexBasis: '100%' }}>
                       Attempt {o.attempts}: {o.lastError}

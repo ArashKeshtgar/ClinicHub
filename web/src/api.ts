@@ -274,6 +274,7 @@ export type OrderStatus = 'Draft' | 'Accepted' | 'InProgress' | 'Completed' | 'C
 export type Order = {
   id: number; target: 'LabFlow' | 'ClinicReport'; code: string; display: string; priority: 'Routine' | 'Stat'; status: OrderStatus
   notes?: string; createdUtc: string; sentUtc?: string; externalId?: string; requester: string; attempts: number; lastError?: string
+  result?: { id: number; status: string; isAbnormal: boolean; summary?: string; externalUrl?: string; receivedUtc: string; reviewedUtc?: string }
 }
 
 export const orders = {
@@ -282,4 +283,17 @@ export const orders = {
   place: (encounterId: number, items: { target: string; code: string }[], priority: 'Routine' | 'Stat', notes: string) =>
     request<Order[]>('POST', `/api/encounters/${encounterId}/orders`, { items, priority, notes }),
   resend: (id: number) => request<void>('POST', `/api/orders/${id}/resend`),
+}
+
+// --- results back (FHIR DiagnosticReport) ---
+
+export type ResultRow = {
+  id: number; receivedUtc: string; status: 'Preliminary' | 'Final' | 'Amended' | 'Cancelled'; isAbnormal: boolean; summary?: string; externalUrl?: string
+  orderId: number; order: string; target: 'LabFlow' | 'ClinicReport'; patientId: number; patient: string; mrn: string; encounterId: number
+  requester: string; reviewedUtc?: string; reviewedBy?: string
+}
+
+export const results = {
+  inbox: (all = false, reviewed = false) => request<ResultRow[]>('GET', `/api/results?all=${all}&reviewed=${reviewed}`),
+  review: (id: number) => request<void>('POST', `/api/results/${id}/review`),
 }

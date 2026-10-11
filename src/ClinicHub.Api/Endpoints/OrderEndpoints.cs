@@ -17,8 +17,9 @@ public static class OrderEndpoints
     public record CatalogItem(string Target, string Code, string Display, string Group, bool Connected);
     public record OrderLine(string Target, string Code);
     public record PlaceOrders(OrderLine[] Items, string? Priority, string? Notes);
+    public record OrderResult(int Id, string Status, bool IsAbnormal, string? Summary, string? ExternalUrl, DateTime ReceivedUtc, DateTime? ReviewedUtc);
     public record OrderDto(int Id, string Target, string Code, string Display, string Priority, string Status, string? Notes,
-        DateTime CreatedUtc, DateTime? SentUtc, string? ExternalId, string Requester, int Attempts, string? LastError);
+        DateTime CreatedUtc, DateTime? SentUtc, string? ExternalId, string Requester, int Attempts, string? LastError, OrderResult? Result);
 
     public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
     {
@@ -114,6 +115,8 @@ public static class OrderEndpoints
             .Select(s => new OrderDto(s.Id, s.TargetSystem, s.Code, s.Display, s.Priority, s.Status, s.ClinicalNotes, s.CreatedUtc, s.SentUtc,
                 s.ExternalId, s.RequesterProvider.LastName,
                 db.Outbox.Where(m => m.Id == s.OutboxMessageId).Select(m => m.Attempts).FirstOrDefault(),
-                db.Outbox.Where(m => m.Id == s.OutboxMessageId).Select(m => m.LastError).FirstOrDefault()))
+                db.Outbox.Where(m => m.Id == s.OutboxMessageId).Select(m => m.LastError).FirstOrDefault(),
+                s.Results.OrderByDescending(r => r.ReceivedUtc)
+                    .Select(r => new OrderResult(r.Id, r.Status, r.IsAbnormal, r.Summary, r.ExternalUrl, r.ReceivedUtc, r.ReviewedUtc)).FirstOrDefault()))
             .ToArrayAsync();
 }

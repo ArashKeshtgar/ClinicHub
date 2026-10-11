@@ -33,6 +33,8 @@ builder.Services.AddHttpClient(OutboxDispatcher.HttpClientName, c => c.Timeout =
 builder.Services.AddScoped<ServiceTokens>();
 builder.Services.AddSingleton<OutboxDispatcher>();
 builder.Services.AddHostedService<OutboxWorker>();
+// Results coming back from LabFlow and ClinicReport.
+builder.Services.AddResultsPolicy();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull);
 
 var loginsPerMinute = builder.Configuration.GetValue("RateLimits:LoginsPerMinute", 10);
@@ -88,6 +90,7 @@ app.MapBillingEndpoints();
 app.MapUserEndpoints();
 app.MapSsoEndpoints();
 app.MapOrderEndpoints();
+app.MapResultEndpoints();
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();

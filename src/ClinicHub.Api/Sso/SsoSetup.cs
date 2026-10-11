@@ -50,6 +50,9 @@ public static class SsoClaims
 
     /// <summary>The scope that asks for the clinic and the permissions in it.</summary>
     public const string ClinicScope = "clinic";
+
+    /// <summary>An application sending results to ClinicHub (client credentials).</summary>
+    public const string ResultsScope = "results";
 }
 
 public static class SsoSetup
@@ -65,6 +68,12 @@ public static class SsoSetup
 
         services.AddOpenIddict()
             .AddCore(o => o.UseEntityFrameworkCore().UseDbContext<CatalogDbContext>())
+            // ClinicHub's own endpoints that applications call (results) accept its own tokens.
+            .AddValidation(o =>
+            {
+                o.UseLocalServer();
+                o.UseAspNetCore();
+            })
             .AddServer(o =>
             {
                 o.SetAuthorizationEndpointUris("connect/authorize")
@@ -73,7 +82,9 @@ public static class SsoSetup
                     .SetEndSessionEndpointUris("connect/logout");
                 o.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
                 o.AllowRefreshTokenFlow();
-                o.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, SsoClaims.ClinicScope);
+                // Applications calling ClinicHub on their own (results back): client credentials, scope "results".
+                o.AllowClientCredentialsFlow();
+                o.RegisterScopes(Scopes.OpenId, Scopes.Profile, Scopes.OfflineAccess, SsoClaims.ClinicScope, SsoClaims.ResultsScope);
                 o.SetAccessTokenLifetime(TimeSpan.FromMinutes(30));
                 if (sso.Issuer is { Length: > 0 } issuer)
                     o.SetIssuer(new Uri(issuer));
@@ -126,6 +137,8 @@ public static class SsoSetup
                     OpenIddictConstants.Permissions.ResponseTypes.Code,
                     OpenIddictConstants.Permissions.Scopes.Profile,
                     OpenIddictConstants.Permissions.Prefixes.Scope + SsoClaims.ClinicScope,
+                    OpenIddictConstants.Permissions.GrantTypes.ClientCredentials,
+                    OpenIddictConstants.Permissions.Prefixes.Scope + SsoClaims.ResultsScope,
                 },
                 Requirements = { Requirements.Features.ProofKeyForCodeExchange },
             };
