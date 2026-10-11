@@ -46,6 +46,7 @@ public static class Permissions
     // LabFlow: the laboratory.
     public const string LabFrontDesk = "labflow:frontdesk";
     public const string LabResultsView = "labflow:results.view";
+    public const string LabResultsEnter = "labflow:results.enter";
     public const string LabAdmin = "labflow:admin";
 
     public record Info(string Key, string Group, string Label, string? App = null);
@@ -81,6 +82,7 @@ public static class Permissions
 
         new(LabFrontDesk, "LabFlow", "Lab front desk: bookings, check-in, collection", Apps.LabFlow),
         new(LabResultsView, "LabFlow", "View lab results", Apps.LabFlow),
+        new(LabResultsEnter, "LabFlow", "Enter, correct and release lab results", Apps.LabFlow),
         new(LabAdmin, "LabFlow", "Lab administration", Apps.LabFlow),
     ];
 
@@ -105,6 +107,7 @@ public static class SystemRoles
     public const string Billing = "Billing clerk";
     public const string PrivacyOfficer = "Privacy officer";
     public const string ReportTypist = "Report typist";
+    public const string LabTechnologist = "Lab technologist";
 
     /// <summary>
     /// The roles every clinic starts with. When a new version adds a permission, it is added to the built-in
@@ -130,5 +133,7 @@ public static class SystemRoles
             [Permissions.PatientsView, Permissions.ConsentManage, Permissions.AuditView, Permissions.ReportAuditView]),
         (ReportTypist, "Starts and fills diagnostic reports during the exam (ClinicReport).",
             [Permissions.ReportsView, Permissions.ReportsCreate, Permissions.ReportsEdit, Permissions.ReportPatientsManage]),
+        (LabTechnologist, "Collects specimens, enters and releases lab results (LabFlow).",
+            [Permissions.PatientsView, Permissions.LabFrontDesk, Permissions.LabResultsView, Permissions.LabResultsEnter]),
     ];
 }
