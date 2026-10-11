@@ -216,6 +216,7 @@ public sealed class FakeFhirServer : HttpMessageHandler
 
     public List<Received> Requests { get; } = [];
     public HttpStatusCode? FailWith { get; set; }
+    public string FailText { get; set; } = "down for maintenance";
     private int _next = 100;
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -224,7 +225,14 @@ public sealed class FakeFhirServer : HttpMessageHandler
         lock (Requests)
             Requests.Add(new Received(request.RequestUri!, request.Headers.Authorization?.Parameter ?? "", bundle));
         if (FailWith is { } status)
-            return new HttpResponseMessage(status) { Content = new StringContent("""{"resourceType":"OperationOutcome","issue":[{"severity":"error","diagnostics":"down for maintenance"}]}""") };
+            return new HttpResponseMessage(status)
+            {
+                Content = new StringContent(new JsonObject
+                {
+                    ["resourceType"] = "OperationOutcome",
+                    ["issue"] = new JsonArray(new JsonObject { ["severity"] = "error", ["diagnostics"] = FailText }),
+                }.ToJsonString()),
+            };
         var entries = new JsonArray();
         foreach (var e in bundle["entry"]!.AsArray())
             entries.Add(new JsonObject { ["response"] = new JsonObject { ["status"] = "201 Created", ["location"] = $"{(string)e!["resource"]!["resourceType"]!}/{_next++}" } });

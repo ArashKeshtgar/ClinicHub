@@ -1738,6 +1738,13 @@ namespace ClinicHub.Api.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("CancelledUtc")
+                        .HasColumnType("datetime2(3)");
+
                     b.Property<string>("ClinicalNotes")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
@@ -1786,6 +1793,10 @@ namespace ClinicHub.Api.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("StatusNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("TargetSystem")
                         .IsRequired()

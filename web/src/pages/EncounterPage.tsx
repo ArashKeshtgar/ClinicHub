@@ -408,8 +408,11 @@ function Addenda({ enc, canAdd, busy, onAdd }: { enc: Encounter; canAdd: boolean
 
 const ORDER_STATUS: Record<string, [string, string]> = {
   Draft: ['Sending…', 'none'], Accepted: ['Received', 'ohip'], InProgress: ['In progress', 'rmb'], Completed: ['Resulted', 'ohip'],
-  Cancelled: ['Cancelled', ''], Failed: ['Not delivered', 'none'],
+  Cancelled: ['Cancelled', ''], Failed: ['Not delivered', 'none'], Cancelling: ['Cancelling…', 'none'],
 }
+
+/** Statuses an order can still be withdrawn from (the application decides once it has the order). */
+const CANCELLABLE = ['Draft', 'Failed', 'Accepted', 'InProgress']
 
 /**
  * Lab tests (LabFlow) and echo / ECG (ClinicReport) from this visit. Each goes as a FHIR ServiceRequest; the status
@@ -423,13 +426,15 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
   const [priority, setPriority] = useState<'Routine' | 'Stat'>('Routine')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState<{ id: number; reason: string } | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const key = (i: { target: string; code: string }) => `${i.target}|${i.code}`
 
   const load = useCallback(() => orders.forEncounter(encounterId).then(setList).catch(() => setList([])), [encounterId])
   useEffect(() => { load(); orders.catalog().then(setCatalog).catch(() => setCatalog([])) }, [load])
   // While something is on its way, look again shortly.
   useEffect(() => {
-    if (!list?.some(o => o.status === 'Draft')) return
+    if (!list?.some(o => o.status === 'Draft' || o.status === 'Cancelling')) return
     const t = setTimeout(load, 4000)
     return () => clearTimeout(t)
   }, [list, load])
@@ -441,6 +446,17 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
       setChosen([]); setNotes(''); setPriority('Routine'); setPicking(false)
     } catch (e) {
       setError(firstError(e, 'Not ordered.'))
+    }
+  }
+
+  const cancel = async () => {
+    if (!cancelling) return
+    setCancelError(null)
+    try {
+      setList(await orders.cancel(cancelling.id, cancelling.reason))
+      setCancelling(null)
+    } catch (e) {
+      setCancelError(firstError(e, 'Not cancelled.'))
     }
   }
 
@@ -469,7 +485,25 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
                       {o.result.externalUrl && <a href={o.result.externalUrl} target="_blank" rel="noreferrer">Full report ↗</a>}
                     </div>
                   )}
-                  {o.lastError && o.status !== 'Accepted' && (
+                  {canOrder && CANCELLABLE.includes(o.status) && cancelling?.id !== o.id && (
+                    <button className="quiet small" onClick={() => { setCancelling({ id: o.id, reason: '' }); setCancelError(null) }}>Cancel order</button>
+                  )}
+                  {o.status === 'Cancelled' && o.cancelReason && <div className="muted small" style={{ flexBasis: '100%' }}>Reason: {o.cancelReason}</div>}
+                  {o.statusNote && o.status !== 'Cancelled' && <div className="muted small" style={{ flexBasis: '100%' }}>{o.statusNote}</div>}
+                  {cancelling?.id === o.id && (
+                    <div style={{ flexBasis: '100%', display: 'grid', gap: '.4rem' }}>
+                      <label className="small">Why cancel? (sent to {o.target === 'LabFlow' ? 'the lab' : 'ClinicReport'})
+                        <input value={cancelling.reason} maxLength={200} autoFocus placeholder="e.g. Ordered in error"
+                          onChange={e => setCancelling({ id: o.id, reason: e.target.value })} />
+                      </label>
+                      {cancelError && <p className="error" style={{ margin: 0 }}>{cancelError}</p>}
+                      <div className="dialog-actions">
+                        <button onClick={() => setCancelling(null)}>Keep order</button>
+                        <button className="danger" onClick={cancel}>Cancel order</button>
+                      </div>
+                    </div>
+                  )}
+                  {o.lastError && o.status !== 'Accepted' && o.status !== 'Cancelled' && (
                     <div className="muted small" style={{ flexBasis: '100%' }}>
                       Attempt {o.attempts}: {o.lastError}
                       {canOrder && <button className="quiet small" onClick={async () => { await orders.resend(o.id); load() }}>Try again now</button>}

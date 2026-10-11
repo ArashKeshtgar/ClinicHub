@@ -200,4 +200,17 @@ sequenceDiagram
   physician acknowledges each (`results.review`, logged under PHIPA). The visit page shows the result with the
   order.
 
-Still to come: cancelling an order.
+## Cancelling an order
+
+*Cancel order* on the visit page, with an optional reason that goes to the application.
+
+- **Not delivered yet** (sending, or not delivered): cancelled in ClinicHub at once. The order comes out of its
+  waiting message, and a message with nothing left in it is removed.
+- **Delivered:** the order shows *Cancelling…* and a message goes through the outbox: the same ServiceRequest with
+  `status: revoked`, as a conditional update (`PUT ServiceRequest?identifier=urn:clinichub:{clinic}:service-request|{id}`),
+  the reason in a note. A `200` cancels the order.
+- **The application decides.** LabFlow strikes the test from a waiting order, or cancels the requisition item if no
+  result has been entered; ClinicReport cancels an exam that has not been started. Otherwise they answer `409` with
+  an OperationOutcome; the order goes back to where it was and shows the answer ("Results have been entered…; call
+  the lab"). A refusal is an answer, not a failure: it is not retried.
+- A resulted order can no longer be cancelled.

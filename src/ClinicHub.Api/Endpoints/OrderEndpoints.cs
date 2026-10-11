@@ -17,9 +17,11 @@ public static class OrderEndpoints
     public record CatalogItem(string Target, string Code, string Display, string Group, bool Connected);
     public record OrderLine(string Target, string Code);
     public record PlaceOrders(OrderLine[] Items, string? Priority, string? Notes);
+    public record CancelOrder(string? Reason);
     public record OrderResult(int Id, string Status, bool IsAbnormal, string? Summary, string? ExternalUrl, DateTime ReceivedUtc, DateTime? ReviewedUtc);
     public record OrderDto(int Id, string Target, string Code, string Display, string Priority, string Status, string? Notes,
-        DateTime CreatedUtc, DateTime? SentUtc, string? ExternalId, string Requester, int Attempts, string? LastError, OrderResult? Result);
+        DateTime CreatedUtc, DateTime? SentUtc, string? ExternalId, string Requester, int Attempts, string? LastError, OrderResult? Result,
+        string? CancelReason, string? StatusNote);
 
     public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
     {
@@ -68,7 +70,7 @@ public static class OrderEndpoints
                 var placed = new List<ServiceRequest>();
                 foreach (var group in items.GroupBy(i => i!.Target))
                 {
-                    var message = new OutboxMessage { Destination = group.Key, Kind = "ServiceRequest", CreatedUtc = now };
+                    var message = new OutboxMessage { Destination = group.Key, Kind = OutboxKinds.Order, CreatedUtc = now };
                     db.Outbox.Add(message);
                     await db.SaveChangesAsync();
                     var orders = group.Select(i => new ServiceRequest
@@ -90,6 +92,73 @@ public static class OrderEndpoints
                 await tx.CommitAsync();
             });
             return Results.Ok(await Orders(db, id));
+        }).WithTags("Orders").RequireAuthorization(Permissions.OrdersManage);
+
+        // Withdrawing an order. Not delivered yet: it is taken out of its message here. Delivered: the application is
+        // asked, and it decides (a lab that has resulted the specimen, a report already started, say no).
+        app.MapPost("/api/orders/{id:int}/cancel", async (int id, CancelOrder req, ClaimsPrincipal user, ClinicHubDbContext db,
+            CatalogDbContext catalog, TimeProvider clock, HttpContext http) =>
+        {
+            var order = await db.ServiceRequests.Include(s => s.Patient).Include(s => s.RequesterProvider).SingleOrDefaultAsync(s => s.Id == id);
+            if (order is null)
+                return Results.NotFound();
+            var refusal = order.Status switch
+            {
+                ServiceRequestStatus.Cancelled => "This order is already cancelled.",
+                ServiceRequestStatus.Cancelling => "This order is already being cancelled.",
+                ServiceRequestStatus.Completed => "This order has its results; it can no longer be cancelled.",
+                _ => null,
+            };
+            if (refusal is not null)
+                return Results.Problem(refusal, statusCode: StatusCodes.Status409Conflict);
+            var reason = string.IsNullOrWhiteSpace(req.Reason) ? null : req.Reason.Trim();
+            if (reason?.Length > 200)
+                return Results.ValidationProblem(new Dictionary<string, string[]> { ["reason"] = ["At most 200 characters."] });
+
+            var now = clock.GetUtcNow().UtcDateTime;
+            var clinic = await catalog.Clinics.AsNoTracking().SingleAsync(c => c.Id == user.RequiredClinicId());
+            var message = order.OutboxMessageId is { } m ? await db.Outbox.SingleOrDefaultAsync(x => x.Id == m) : null;
+            order.CancelReason = reason;
+            order.StatusNote = null;
+            await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+            {
+                await using var tx = await db.Database.BeginTransactionAsync();
+                if (message is null || message.SentUtc is null)
+                {
+                    // Never reached the application: nothing to ask. The message goes on with the other orders, or not at all.
+                    order.Status = ServiceRequestStatus.Cancelled;
+                    order.CancelledUtc = now;
+                    order.OutboxMessageId = null;
+                    if (message is not null)
+                    {
+                        var rest = await db.ServiceRequests.Where(s => s.OutboxMessageId == message.Id && s.Id != order.Id).OrderBy(s => s.Id).ToListAsync();
+                        if (rest.Count == 0)
+                        {
+                            await db.SaveChangesAsync();
+                            db.Outbox.Remove(message);
+                        }
+                        else
+                        {
+                            message.ServiceRequestId = rest[0].Id;
+                            message.PayloadJson = FhirOrderBundle.Build(clinic, order.Patient, order.RequesterProvider, rest, now).ToJsonString();
+                        }
+                    }
+                }
+                else
+                {
+                    order.Status = ServiceRequestStatus.Cancelling;
+                    db.Outbox.Add(new OutboxMessage
+                    {
+                        Destination = order.TargetSystem, Kind = OutboxKinds.Cancel, ServiceRequestId = order.Id, CreatedUtc = now,
+                        PayloadJson = FhirOrderBundle.Cancel(clinic, order.Patient, order, now).ToJsonString(),
+                    });
+                }
+                db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = user.RequiredUserId(), PatientId = order.PatientId,
+                    Action = AccessActions.Edit, Context = $"Cancelled order {order.Id} ({order.Display})", IpAddress = AuthEndpoints.Ip(http) });
+                await db.SaveChangesAsync();
+                await tx.CommitAsync();
+            });
+            return Results.Ok(await Orders(db, order.EncounterId));
         }).WithTags("Orders").RequireAuthorization(Permissions.OrdersManage);
 
         // After a failure the order can be tried again, e.g. once the application is back.
@@ -114,9 +183,13 @@ public static class OrderEndpoints
         await db.ServiceRequests.AsNoTracking().Where(s => s.EncounterId == encounterId).OrderByDescending(s => s.Id)
             .Select(s => new OrderDto(s.Id, s.TargetSystem, s.Code, s.Display, s.Priority, s.Status, s.ClinicalNotes, s.CreatedUtc, s.SentUtc,
                 s.ExternalId, s.RequesterProvider.LastName,
-                db.Outbox.Where(m => m.Id == s.OutboxMessageId).Select(m => m.Attempts).FirstOrDefault(),
-                db.Outbox.Where(m => m.Id == s.OutboxMessageId).Select(m => m.LastError).FirstOrDefault(),
+                // The message in flight: the cancellation while one is being sent, otherwise the order itself.
+                db.Outbox.Where(m => s.Status == ServiceRequestStatus.Cancelling ? m.Kind == OutboxKinds.Cancel && m.ServiceRequestId == s.Id : m.Id == s.OutboxMessageId)
+                    .OrderByDescending(m => m.Id).Select(m => m.Attempts).FirstOrDefault(),
+                db.Outbox.Where(m => s.Status == ServiceRequestStatus.Cancelling ? m.Kind == OutboxKinds.Cancel && m.ServiceRequestId == s.Id : m.Id == s.OutboxMessageId)
+                    .OrderByDescending(m => m.Id).Select(m => m.LastError).FirstOrDefault(),
                 s.Results.OrderByDescending(r => r.ReceivedUtc)
-                    .Select(r => new OrderResult(r.Id, r.Status, r.IsAbnormal, r.Summary, r.ExternalUrl, r.ReceivedUtc, r.ReviewedUtc)).FirstOrDefault()))
+                    .Select(r => new OrderResult(r.Id, r.Status, r.IsAbnormal, r.Summary, r.ExternalUrl, r.ReceivedUtc, r.ReviewedUtc)).FirstOrDefault(),
+                s.CancelReason, s.StatusNote))
             .ToArrayAsync();
 }

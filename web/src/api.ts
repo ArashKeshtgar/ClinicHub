@@ -270,11 +270,12 @@ export const firstError = (err: unknown, fallback: string) =>
 // --- orders to LabFlow and ClinicReport (FHIR) ---
 
 export type CatalogItem = { target: 'LabFlow' | 'ClinicReport'; code: string; display: string; group: string; connected: boolean }
-export type OrderStatus = 'Draft' | 'Accepted' | 'InProgress' | 'Completed' | 'Cancelled' | 'Failed'
+export type OrderStatus = 'Draft' | 'Accepted' | 'InProgress' | 'Completed' | 'Cancelled' | 'Failed' | 'Cancelling'
 export type Order = {
   id: number; target: 'LabFlow' | 'ClinicReport'; code: string; display: string; priority: 'Routine' | 'Stat'; status: OrderStatus
   notes?: string; createdUtc: string; sentUtc?: string; externalId?: string; requester: string; attempts: number; lastError?: string
   result?: { id: number; status: string; isAbnormal: boolean; summary?: string; externalUrl?: string; receivedUtc: string; reviewedUtc?: string }
+  cancelReason?: string; statusNote?: string
 }
 
 export const orders = {
@@ -283,6 +284,7 @@ export const orders = {
   place: (encounterId: number, items: { target: string; code: string }[], priority: 'Routine' | 'Stat', notes: string) =>
     request<Order[]>('POST', `/api/encounters/${encounterId}/orders`, { items, priority, notes }),
   resend: (id: number) => request<void>('POST', `/api/orders/${id}/resend`),
+  cancel: (id: number, reason: string) => request<Order[]>('POST', `/api/orders/${id}/cancel`, { reason }),
 }
 
 // --- results back (FHIR DiagnosticReport) ---

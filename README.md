@@ -53,6 +53,8 @@ patient data leaves the offline copy.
       [docs/architecture.md](docs/architecture.md#orders-over-fhir)
 - [x] Results back from LabFlow and ClinicReport (DiagnosticReport) and the results inbox, see
       [docs/architecture.md](docs/architecture.md#results-back)
+- [x] Cancelling an order: at once if not yet delivered, otherwise the application is asked and may refuse
+      (results entered, report started), see [docs/architecture.md](docs/architecture.md#cancelling-an-order)
 - [ ] Master patient index: duplicate detection and merge; PHIPA consent directives
 - [x] ClinicHub as an OpenID Connect provider: code flow with PKCE, refresh, userinfo, sign-out; tokens carry the
       clinic and only the requesting application's permissions; ClinicReport and LabFlow permissions are part

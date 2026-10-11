@@ -12,6 +12,8 @@ namespace ClinicHub.Api.Integrations;
 /// Delivers the FHIR messages each clinic's database has waiting in its outbox. An order is saved together with
 /// its message, so nothing is lost if an application is down: the message waits and is retried with growing
 /// pauses (10 s, 20 s, 40 s… up to 30 min). After <see cref="MaxAttempts"/> failures the order is marked Failed.
+/// A cancellation goes the same way; the application may refuse it (work already done), and then the order
+/// carries on with the application's answer as its note.
 /// </summary>
 public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory http, IOptionsMonitor<IntegrationOptions> options,
     TimeProvider clock, ILogger<OutboxDispatcher> logger)
@@ -42,7 +44,10 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
 
     private async Task<bool> SendAsync(ClinicHubDbContext db, Clinic clinic, OutboxMessage message, ServiceTokens tokens, CancellationToken ct)
     {
-        var orders = await db.ServiceRequests.Where(s => s.OutboxMessageId == message.Id).OrderBy(s => s.Id).ToListAsync(ct);
+        var cancel = message.Kind == OutboxKinds.Cancel;
+        var orders = cancel
+            ? await db.ServiceRequests.Include(s => s.Results).Where(s => s.Id == message.ServiceRequestId).ToListAsync(ct)
+            : await db.ServiceRequests.Where(s => s.OutboxMessageId == message.Id).OrderBy(s => s.Id).ToListAsync(ct);
         var target = options.CurrentValue.For(message.Destination);
         var now = clock.GetUtcNow().UtcDateTime;
         message.Attempts++;
@@ -57,16 +62,38 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.Create(IntegrationOptions.Audience(message.Destination), clinic));
             using var response = await http.CreateClient(HttpClientName).SendAsync(request, ct);
             var body = await response.Content.ReadAsStringAsync(ct);
+            if (cancel && (int)response.StatusCode is 400 or 404 or 409 or 422)
+            {
+                // An answer, not a failure: the application will not cancel (e.g. the specimen is already resulted).
+                foreach (var o in orders)
+                    Refused(o, $"{message.Destination} did not cancel: {Problem(body)}");
+                message.SentUtc = now;
+                message.LastError = Problem(body);
+                message.NextAttemptUtc = null;
+                await db.SaveChangesAsync(ct);
+                logger.LogInformation("{Destination} refused to cancel order {Id} for {Clinic}", message.Destination, message.ServiceRequestId, clinic.Slug);
+                return true;
+            }
             if (!response.IsSuccessStatusCode)
                 throw new HttpRequestException($"{(int)response.StatusCode}: {Problem(body)}");
 
-            // A transaction-response lists one entry per request entry, in order; the orders come after the patient and requester.
-            var locations = (JsonNode.Parse(body)?["entry"]?.AsArray() ?? []).Select(e => (string?)e?["response"]?["location"]).ToList();
-            for (var i = 0; i < orders.Count; i++)
+
+            if (cancel)
+                foreach (var o in orders)
+                {
+                    o.Status = ServiceRequestStatus.Cancelled;
+                    o.CancelledUtc = now;
+                }
+            else
             {
-                orders[i].Status = ServiceRequestStatus.Accepted;
-                orders[i].SentUtc = now;
-                orders[i].ExternalId = locations.ElementAtOrDefault(i + 2)?.Split('/').ElementAtOrDefault(1);
+                // A transaction-response lists one entry per request entry, in order; the orders come after the patient and requester.
+                var locations = (JsonNode.Parse(body)?["entry"]?.AsArray() ?? []).Select(e => (string?)e?["response"]?["location"]).ToList();
+                for (var i = 0; i < orders.Count; i++)
+                {
+                    orders[i].Status = ServiceRequestStatus.Accepted;
+                    orders[i].SentUtc = now;
+                    orders[i].ExternalId = locations.ElementAtOrDefault(i + 2)?.Split('/').ElementAtOrDefault(1);
+                }
             }
             message.SentUtc = now;
             message.LastError = null;
@@ -81,12 +108,25 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
             message.NextAttemptUtc = now.AddSeconds(Math.Min(10 * Math.Pow(2, message.Attempts - 1), 1800));
             if (message.Attempts >= MaxAttempts)
                 foreach (var o in orders)
-                    o.Status = ServiceRequestStatus.Failed;
+                    if (cancel)
+                        Refused(o, $"{message.Destination} could not be reached to cancel. Cancel again to retry.");
+                    else
+                        o.Status = ServiceRequestStatus.Failed;
             await db.SaveChangesAsync(ct);
             logger.LogWarning("Could not deliver {Kind} {Id} for {Clinic} to {Destination} (attempt {Attempt}): {Error}",
                 message.Kind, message.Id, clinic.Slug, message.Destination, message.Attempts, message.LastError);
             return false;
         }
+    }
+
+    /// <summary>The cancellation did not happen: the order goes on where it was.</summary>
+    private static void Refused(ServiceRequest order, string note)
+    {
+        if (order.Status != ServiceRequestStatus.Cancelling)
+            return;   // a result arrived meanwhile and moved it on
+        order.Status = order.Results.Count > 0 ? ServiceRequestStatus.InProgress : ServiceRequestStatus.Accepted;
+        order.CancelReason = null;
+        order.StatusNote = note.Length > 500 ? note[..500] : note;
     }
 
     /// <summary>The useful part of an OperationOutcome or problem response.</summary>

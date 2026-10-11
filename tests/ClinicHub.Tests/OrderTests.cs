@@ -125,4 +125,88 @@ public class OrderTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal("transaction", (string)JsonNode.Parse(message.PayloadJson)!["type"]!);
         Assert.Contains(db.PatientAccessLog, l => l.Context == $"Ordered 2 from encounter {encounter}");
     }
+    private async Task<JsonNode> Cancel(HttpClient dr, int order, string reason) =>
+        await Json(await dr.PostAsJsonAsync($"/api/orders/{order}/cancel", new { reason }));
+
+    private static JsonNode Find(JsonNode orders, string code) => orders.AsArray().Single(o => (string)o!["code"]! == code)!;
+
+    [Fact]
+    public async Task An_order_not_yet_sent_is_cancelled_here()
+    {
+        var (dr, encounter) = await Visit(4);
+        var placed = await Json(await dr.PostAsJsonAsync($"/api/encounters/{encounter}/orders", Order(("LabFlow", "CBC"), ("LabFlow", "2857-1"))));
+        await using var db = new TestDatabaseReader(factory).Context();
+        var messageId = (await db.ServiceRequests.FirstAsync(s => s.EncounterId == encounter)).OutboxMessageId;
+
+        var after = await Cancel(dr, (int)Find(placed, "CBC")["id"]!, "Ordered in error");
+        Assert.Equal("Cancelled", (string)Find(after, "CBC")["status"]!);
+        Assert.Equal("Ordered in error", (string)Find(after, "CBC")["cancelReason"]!);
+        // The message now carries only the other test.
+        db.ChangeTracker.Clear();
+        var payload = JsonNode.Parse((await db.Outbox.SingleAsync(m => m.Id == messageId)).PayloadJson)!;
+        var requests = payload["entry"]!.AsArray().Select(e => e!["resource"]!).Where(r => (string)r["resourceType"]! == "ServiceRequest").ToList();
+        Assert.Equal("2857-1", (string)Assert.Single(requests)["code"]!["coding"]![0]!["code"]!);
+
+        // The last one cancelled: nothing is left to send.
+        await Cancel(dr, (int)Find(placed, "2857-1")["id"]!, "Ordered in error");
+        Assert.False(await db.Outbox.AnyAsync(m => m.Id == messageId));
+        Assert.Equal(HttpStatusCode.Conflict, (await dr.PostAsJsonAsync($"/api/orders/{(int)Find(placed, "CBC")["id"]!}/cancel", new { reason = "" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_delivered_order_is_withdrawn_from_the_application()
+    {
+        var (dr, encounter) = await Visit(5);
+        factory.Fhir.FailWith = null;
+        var placed = await Json(await dr.PostAsJsonAsync($"/api/encounters/{encounter}/orders", Order(("ClinicReport", "echo-tte"))));
+        await Dispatcher.DispatchAsync();
+        var id = (int)placed[0]!["id"]!;
+
+        var cancelling = await Cancel(dr, id, "Patient declined");
+        Assert.Equal("Cancelling", (string)cancelling[0]!["status"]!);
+        var before = factory.Fhir.Requests.Count;
+        await Dispatcher.DispatchAsync();
+        var sent = factory.Fhir.Requests.Skip(before).Single();
+        Assert.Equal("report.test", sent.Url.Host);
+        var entry = Assert.Single(sent.Bundle["entry"]!.AsArray())!;
+        Assert.Equal("PUT", (string)entry["request"]!["method"]!);
+        Assert.Equal($"ServiceRequest?identifier=urn:clinichub:harbourview:service-request|{id}", (string)entry["request"]!["url"]!);
+        Assert.Equal("revoked", (string)entry["resource"]!["status"]!);
+        Assert.Equal("Patient declined", (string)entry["resource"]!["note"]![0]!["text"]!);
+
+        var after = await Json(await dr.GetAsync($"/api/encounters/{encounter}/orders"));
+        Assert.Equal("Cancelled", (string)after[0]!["status"]!);
+        Assert.Equal(HttpStatusCode.Conflict, (await dr.PostAsJsonAsync($"/api/orders/{id}/cancel", new { reason = "" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task The_application_may_refuse_and_the_order_carries_on()
+    {
+        var (dr, encounter) = await Visit(6);
+        factory.Fhir.FailWith = null;
+        var placed = await Json(await dr.PostAsJsonAsync($"/api/encounters/{encounter}/orders", Order(("LabFlow", "CBC"))));
+        await Dispatcher.DispatchAsync();
+        var id = (int)placed[0]!["id"]!;
+
+        await Cancel(dr, id, "Duplicate");
+        factory.Fhir.FailWith = HttpStatusCode.Conflict;
+        factory.Fhir.FailText = "Results have been entered for Complete blood count; call the lab.";
+        try
+        {
+            Assert.Equal(1, await Dispatcher.DispatchAsync());
+        }
+        finally
+        {
+            factory.Fhir.FailWith = null;
+            factory.Fhir.FailText = "down for maintenance";
+        }
+        var order = (await Json(await dr.GetAsync($"/api/encounters/{encounter}/orders")))[0]!;
+        Assert.Equal("Accepted", (string)order["status"]!);
+        Assert.Contains("did not cancel: Results have been entered", (string)order["statusNote"]!);
+        Assert.Null(order["cancelReason"]);
+        // Answered, not retried.
+        var count = factory.Fhir.Requests.Count;
+        await Dispatcher.DispatchAsync();
+        Assert.Equal(count, factory.Fhir.Requests.Count);
+    }
 }

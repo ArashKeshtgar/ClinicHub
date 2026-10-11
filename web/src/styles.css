@@ -50,6 +50,7 @@ button:hover:not(:disabled) { border-color: var(--primary); }
 button:disabled { opacity: .5; cursor: not-allowed; }
 button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 button.primary:hover:not(:disabled) { background: var(--primary-strong); }
+button.danger { background: var(--noshow); border-color: var(--noshow); color: #fff; }
 button.quiet { border-color: transparent; background: transparent; color: var(--primary); min-height: 32px; padding: .2rem .5rem; }
 button.small { min-height: 32px; padding: .2rem .7rem; font-size: .9rem; }
 input, select { min-height: 42px; padding: .45rem .7rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); width: 100%; }

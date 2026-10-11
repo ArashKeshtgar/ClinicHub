@@ -134,6 +134,38 @@ public static class FhirOrderBundle
         };
     }
 
+    /// <summary>
+    /// Withdrawing an order: the ServiceRequest again, status "revoked", as a conditional update on its identifier.
+    /// R4's ServiceRequest has no status reason, so the clinician's reason goes in a note.
+    /// </summary>
+    public static JsonObject Cancel(Clinic clinic, Patient patient, ServiceRequest order, DateTime nowUtc)
+    {
+        var item = OrderCatalog.Find(order.TargetSystem, order.Code)!;
+        var system = FhirSystems.Clinic(clinic.Slug, "service-request");
+        return new JsonObject
+        {
+            ["resourceType"] = "Bundle", ["type"] = "transaction",
+            ["timestamp"] = nowUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            ["entry"] = new JsonArray(new JsonObject
+            {
+                ["resource"] = new JsonObject
+                {
+                    ["resourceType"] = "ServiceRequest",
+                    ["identifier"] = new JsonArray(Identifier(system, order.Id.ToString())),
+                    ["status"] = "revoked", ["intent"] = "order",
+                    ["code"] = new JsonObject
+                    {
+                        ["coding"] = new JsonArray(new JsonObject { ["system"] = item.System, ["code"] = item.Code, ["display"] = item.Display }),
+                        ["text"] = item.Display,
+                    },
+                    ["subject"] = new JsonObject { ["identifier"] = Identifier(FhirSystems.Clinic(clinic.Slug, "mrn"), patient.Mrn) },
+                    ["note"] = order.CancelReason is { } why ? new JsonArray(new JsonObject { ["text"] = why }) : null,
+                },
+                ["request"] = new JsonObject { ["method"] = "PUT", ["url"] = $"ServiceRequest?identifier={system}|{order.Id}" },
+            }),
+        };
+    }
+
     private static JsonObject Identifier(string system, string value) => new() { ["system"] = system, ["value"] = value };
 
     private static JsonObject Entry(string fullUrl, JsonObject resource) => new()

@@ -19,6 +19,17 @@ public static class ServiceRequestStatus
     public const string Completed = "Completed";
     public const string Cancelled = "Cancelled";
     public const string Failed = "Failed";
+
+    /// <summary>Asked the other application to cancel; waiting for its answer.</summary>
+    public const string Cancelling = "Cancelling";
+}
+
+public static class OutboxKinds
+{
+    public const string Order = "ServiceRequest";
+
+    /// <summary>The order is withdrawn: the same ServiceRequest with status "revoked".</summary>
+    public const string Cancel = "ServiceRequestCancel";
 }
 
 /// <summary>An order: a lab test for LabFlow, or an ECG / echo for ClinicReport (FHIR ServiceRequest).</summary>
@@ -49,6 +60,14 @@ public class ServiceRequest
     public DateTime CreatedUtc { get; set; }
     public DateTime? SentUtc { get; set; }
     public DateTime? CompletedUtc { get; set; }
+
+    /// <summary>Why the clinician cancelled (kept while the application is asked, and after).</summary>
+    [MaxLength(200)] public string? CancelReason { get; set; }
+    public DateTime? CancelledUtc { get; set; }
+
+    /// <summary>The other application's answer when it could not cancel, e.g. results already entered.</summary>
+    [MaxLength(500)] public string? StatusNote { get; set; }
+
     public List<DiagnosticResult> Results { get; set; } = [];
 }
 
