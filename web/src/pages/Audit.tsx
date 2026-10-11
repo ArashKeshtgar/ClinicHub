@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { admin, firstError, localDateTime, type AccessRow, type AuditRow, type ClinicInfo } from '../api'
+import { admin, consent, CONSENT_SCOPES, firstError, localDateTime, type AccessRow, type AuditRow, type ClinicInfo, type OverrideRow } from '../api'
 import { useSession } from '../App'
 
 const TYPES: Record<string, string> = {
@@ -15,7 +15,7 @@ const WARN = new Set(['LoginFailed', 'LockedOut', 'PasswordReset', 'TwoFactorRes
 /** Two trails: sign-ins and account changes (catalog), and who opened which patient's record (this clinic's database). */
 export default function Audit() {
   const { me } = useSession()
-  const [tab, setTab] = useState<'access' | 'security'>('access')
+  const [tab, setTab] = useState<'access' | 'overrides' | 'security'>('access')
   return (
     <>
       <div className="board-head">
@@ -26,9 +26,10 @@ export default function Audit() {
       </div>
       <div className="tabs" role="tablist">
         <button role="tab" aria-selected={tab === 'access'} className={`tab ${tab === 'access' ? 'on' : ''}`} onClick={() => setTab('access')}>Patient record access (PHIPA)</button>
+        <button role="tab" aria-selected={tab === 'overrides'} className={`tab ${tab === 'overrides' ? 'on' : ''}`} onClick={() => setTab('overrides')}>Consent overrides</button>
         <button role="tab" aria-selected={tab === 'security'} className={`tab ${tab === 'security' ? 'on' : ''}`} onClick={() => setTab('security')}>Sign-ins and accounts</button>
       </div>
-      {tab === 'access' ? <AccessLog /> : <SecurityLog />}
+      {tab === 'access' ? <AccessLog /> : tab === 'overrides' ? <Overrides /> : <SecurityLog />}
     </>
   )
 }
@@ -49,7 +50,7 @@ function AccessLog() {
                 <td className="muted small">{localDateTime(r.atUtc)}</td>
                 <td>{r.user}</td>
                 <td>{r.patient} <span className="muted small mono">{r.mrn}</span></td>
-                <td><span className="badge">{r.action}</span> <span className="small">{r.context}</span></td>
+                <td><span className="badge">{r.action}</span> {r.override && <span className="badge none" title="Opened under an emergency override of a consent directive">Override</span>} <span className="small">{r.context}</span></td>
                 <td className="mono muted small">{r.ipAddress}</td>
               </tr>
             ))}
@@ -165,5 +166,35 @@ export function Clinics() {
         </form>
       </div>
     </>
+  )
+}
+
+/** Every emergency override of a consent directive, for the privacy officer to follow up. */
+function Overrides() {
+  const [rows, setRows] = useState<OverrideRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => { consent.overrides().then(setRows).catch(e => setError(firstError(e, 'Could not load.'))) }, [])
+  return (
+    <section className="card">
+      <p className="muted small pad" style={{ margin: 0 }}>A clinician opened a record the patient had withheld, saying why. Review each one; what they opened is in the access log, marked Override.</p>
+      {error && <p className="error pad">{error}</p>}
+      <div className="table-wrap">
+        <table className="data">
+          <thead><tr><th>When</th><th>Who</th><th>Patient</th><th>Directive</th><th>Reason</th></tr></thead>
+          <tbody>
+            {rows?.map(r => (
+              <tr key={r.id}>
+                <td className="muted small">{localDateTime(r.atUtc)}<div>until {localDateTime(r.expiresUtc)}</div></td>
+                <td>{r.user}</td>
+                <td>{r.patient} <span className="muted small mono">{r.mrn}</span></td>
+                <td><span className="badge">{CONSENT_SCOPES[r.scope] ?? r.scope}</span></td>
+                <td className="small">{r.reason}</td>
+              </tr>
+            ))}
+            {rows?.length === 0 && <tr><td colSpan={5} className="muted">No overrides.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }

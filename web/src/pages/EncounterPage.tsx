@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, can, encounters, firstError, localDateTime, localTime, money, orders, type CatalogItem, type Codes, type Coding, type Encounter, type Order, type Soap, type Vitals, type VitalsInput } from '../api'
+import { ApiError, can, consent, encounters, firstError, localDateTime, localTime, money, orders, withheld, type Withheld, type CatalogItem, type Codes, type Coding, type Encounter, type Order, type Soap, type Vitals, type VitalsInput } from '../api'
 import { useSession } from '../App'
 
 const PROGRAM: Record<string, string> = { HCP: 'OHIP', RMB: 'Reciprocal (other province)', WCB: 'WSIB', Uninsured: 'Uninsured · patient pays' }
@@ -19,11 +19,16 @@ export default function EncounterPage() {
   const [codes, setCodes] = useState<Codes | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [locked, setLocked] = useState<Withheld | null>(null)
 
-  useEffect(() => {
-    encounters.get(id).then(setEnc).catch(e => setError(e.message))
-    encounters.codes().then(setCodes)
+  const load = useCallback(() => {
+    setLocked(null)
+    encounters.get(id).then(setEnc).catch(e => { const w = withheld(e); if (w) setLocked(w); else setError(e.message) })
   }, [id])
+  useEffect(() => {
+    load()
+    encounters.codes().then(setCodes)
+  }, [load])
 
   const run = async (f: () => Promise<Encounter>) => {
     setError(null)
@@ -39,6 +44,7 @@ export default function EncounterPage() {
 
   const note = useNoteAutosave(id, enc)
 
+  if (locked) return <WithheldVisit info={locked} onOpened={load} />
   if (!enc) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>
 
   const open = enc.status === 'Open'
@@ -141,7 +147,8 @@ export default function EncounterPage() {
                   {h.assessment && <div className="small muted clamp">{h.assessment}</div>}
                 </li>
               ))}
-              {enc.history.length === 0 && <li className="muted small">First visit at this clinic.</li>}
+              {enc.history.length === 0 && enc.withheldVisits === 0 && <li className="muted small">First visit at this clinic.</li>}
+              {enc.withheldVisits > 0 && <li className="muted small">{enc.withheldVisits} earlier {enc.withheldVisits === 1 ? 'visit is' : 'visits are'} withheld at the patient's request.</li>}
             </ul>
           </section>
         </aside>
@@ -541,5 +548,38 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
         )}
       </div>
     </section>
+  )
+}
+
+/**
+ * A visit the patient withheld from this person (PHIPA consent directive). In an emergency a clinician with the
+ * override permission can open the record for an hour, giving a reason; the privacy officer sees every override.
+ */
+function WithheldVisit({ info, onOpened }: { info: Withheld; onOpened: () => void }) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const open = async () => {
+    setError(null)
+    try { await consent.override(info.patientId, reason); onOpened() } catch (e) { setError(firstError(e, 'Not opened.')) }
+  }
+  return (
+    <>
+      <Link to="/visits" className="back">← Visits</Link>
+      <section className="card pad withheld">
+        <h1>{info.patient} <span className="muted mono small">{info.mrn}</span></h1>
+        <p><strong>Withheld at the patient's request.</strong> The patient has a consent directive (PHIPA) that keeps this visit from you.
+          Their appointments and billing are not affected.</p>
+        {info.canOverride ? (
+          <div style={{ display: 'grid', gap: '.6rem', maxWidth: 560 }}>
+            <label>Emergency: why do you need it now?
+              <textarea rows={2} value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Chest pain in clinic, previous ECG needed" />
+            </label>
+            {error && <p className="error">{error}</p>}
+            <div><button className="danger" disabled={reason.trim().length < 10} onClick={open}>Override for one hour</button></div>
+            <p className="muted small" style={{ margin: 0 }}>Only to prevent serious harm to the patient or others. The override and your reason are logged and reported to the privacy officer.</p>
+          </div>
+        ) : <p className="muted">Ask a clinician who can override in an emergency, or the privacy officer.</p>}
+      </section>
+    </>
   )
 }

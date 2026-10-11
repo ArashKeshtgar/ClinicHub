@@ -129,6 +129,8 @@ export type Encounter = {
   readyToSign: string[]
   billing?: { claimNumber?: string; claimStatus?: string; claimAmount?: number; invoiceNumber?: string; invoiceTotal?: number }
   history: { id: number; checkInUtc: string; provider: string; status: EncounterStatus; diagnosis?: string; assessment?: string }[]
+  /** Earlier visits the patient withheld from this person (PHIPA consent directive). */
+  withheldVisits: number
 }
 
 export type Codes = {
@@ -236,7 +238,7 @@ export type StaffUser = {
 export type RoleInfo = { id: number; name: string; description?: string; permissions: string[]; requireTwoFactor: boolean; isSystem: boolean; userCount: number }
 export type SaveRole = { name: string; description: string | null; permissions: string[]; requireTwoFactor: boolean }
 export type AuditRow = { id: number; atUtc: string; type: string; actor?: string; target?: string; detail?: string; ipAddress?: string }
-export type AccessRow = { id: number; atUtc: string; user: string; patient: string; mrn: string; action: string; context: string; ipAddress?: string }
+export type AccessRow = { id: number; atUtc: string; user: string; patient: string; mrn: string; action: string; context: string; ipAddress?: string; override: boolean }
 export type ClinicInfo = { id: number; slug: string; name: string; databaseName: string; isActive: boolean; members: number; createdUtc: string }
 
 export const admin = {
@@ -292,7 +294,7 @@ export const orders = {
 export type ResultRow = {
   id: number; receivedUtc: string; status: 'Preliminary' | 'Final' | 'Amended' | 'Cancelled'; isAbnormal: boolean; summary?: string; externalUrl?: string
   orderId: number; order: string; target: 'LabFlow' | 'ClinicReport'; patientId: number; patient: string; mrn: string; encounterId: number
-  requester: string; reviewedUtc?: string; reviewedBy?: string
+  requester: string; reviewedUtc?: string; reviewedBy?: string; withheld: boolean
 }
 
 export const results = {
@@ -330,3 +332,31 @@ export const mpi = {
   notDuplicate: (id: number) => request<void>('POST', `/api/patients/duplicates/${id}/not-duplicate`),
   merge: (survivorId: number, mergedId: number) => request<PatientDetail>('POST', '/api/patients/merge', { survivorId, mergedId }),
 }
+
+// --- PHIPA consent directives ---
+
+export type ConsentScope = 'EntireRecord' | 'Encounter' | 'Provider'
+export type Directive = {
+  id: number; scope: ConsentScope; encounterId?: number; encounterUtc?: string; encounterProvider?: string; excludedProviderId?: number
+  excludedProvider?: string; note?: string; recordedBy: string; createdUtc: string; revokedUtc?: string; overrides: number
+}
+export type ConsentInfo = {
+  directives: Directive[]; visits: { id: number; checkInUtc: string; provider: string }[]; providers: { id: number; name: string }[]; overrideUntilUtc?: string
+}
+export type OverrideRow = { id: number; atUtc: string; expiresUtc: string; user: string; patientId: number; patient: string; mrn: string; scope: ConsentScope; reason: string }
+/** The 403 a visit withheld by a directive answers with. */
+export type Withheld = { consentWithheld: true; canOverride: boolean; patientId: number; patient: string; mrn: string }
+
+export const consent = {
+  get: (patientId: number) => request<ConsentInfo>('GET', `/api/patients/${patientId}/consent`),
+  record: (patientId: number, d: { scope: ConsentScope; encounterId?: number | null; excludedProviderId?: number | null; note?: string | null }) =>
+    request<Directive[]>('POST', `/api/patients/${patientId}/consent`, d),
+  revoke: (id: number) => request<Directive[]>('POST', `/api/consent/${id}/revoke`),
+  override: (patientId: number, reason: string) => request<{ expiresUtc: string }>('POST', `/api/patients/${patientId}/consent/override`, { reason }),
+  overrides: () => request<OverrideRow[]>('GET', '/api/consent/overrides'),
+}
+
+export const withheld = (e: unknown): Withheld | null =>
+  e instanceof ApiError && e.status === 403 && e.data.consentWithheld ? e.data as unknown as Withheld : null
+
+export const CONSENT_SCOPES: Record<ConsentScope, string> = { EntireRecord: 'Entire record', Encounter: 'One visit', Provider: 'Kept from one provider' }

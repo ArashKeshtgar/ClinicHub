@@ -249,3 +249,30 @@ front desk registers (`patients.edit`), the privacy officer and administrators r
   the right person because they come back by order. Sending FHIR `Patient` links to them is not built.
 - **Not built:** undoing a merge, and merging across clinics (each clinic's database is its own index).
 
+## Consent directives (PHIPA lockbox)
+
+A patient may withhold part of their record. The privacy officer (`consent.manage`) records the directive on the
+patient (*Patients* → the patient → *Consent directives*) and records its withdrawal; both stay in the history and
+in the access log. The rules are in `Domain/ConsentGuard.cs`.
+
+| Directive | Who still sees a visit |
+|---|---|
+| Entire record | The provider who saw the patient at that visit; while the visit is still open, the team working on it (rooming, vitals) |
+| One visit | Only the provider who saw the patient at that visit |
+| From one provider | Everyone except that provider, who still sees the visits they saw themselves |
+
+- **What is withheld:** visits: the note, vitals, diagnoses and codes, orders and results. **Not withheld:** who the
+  patient is, appointments and check-in, billing. The clinic needs those to book, register and be paid, and the
+  directive is about health information shared within the care team.
+- **What a clinician sees:** opening a withheld visit (or its orders) answers `403` and the page says *Withheld at the
+  patient's request*. Earlier visits withheld from them are left out of the visit page with a count. In the results
+  inbox a withheld result shows only that it exists and cannot be acknowledged.
+- **Emergency override** (`consent.override`, Physicians by default): a reason of 10 characters or more opens the
+  whole record to that clinician for one hour. Every directive gets its own override row; everything opened under it
+  is in the access log marked *Override*; *Logs → Consent overrides* lists them all for the privacy officer.
+- **Merging** moves the directives to the kept record.
+- **Demo:** each demo clinic with a privacy officer starts with one patient whose entire record is withheld (a signed
+  visit by someone other than Dr. Patel, when today has one).
+- **Not built:** LabFlow and ClinicReport are not told about directives, so an order sent to them is not marked as
+  withheld there; telling the patient about an override is the privacy officer's job, outside ClinicHub.
+

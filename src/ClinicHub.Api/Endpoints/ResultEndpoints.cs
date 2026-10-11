@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using ClinicHub.Api.Auth;
 using ClinicHub.Api.Catalog;
 using ClinicHub.Api.Data;
+using ClinicHub.Api.Domain;
 using ClinicHub.Api.Integrations;
 using ClinicHub.Api.Sso;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +24,7 @@ public static class ResultEndpoints
 
     public record ResultRow(int Id, DateTime ReceivedUtc, string Status, bool IsAbnormal, string? Summary, string? ExternalUrl,
         int OrderId, string Order, string Target, int PatientId, string Patient, string Mrn, int EncounterId, string Requester,
-        DateTime? ReviewedUtc, string? ReviewedBy);
+        DateTime? ReviewedUtc, string? ReviewedBy, bool Withheld = false);
 
     public static void AddResultsPolicy(this IServiceCollection services) =>
         services.AddAuthorizationBuilder().AddPolicy(ResultsPolicy, p => p
@@ -36,14 +37,15 @@ public static class ResultEndpoints
         app.MapPost("/fhir", Receive).RequireAuthorization(ResultsPolicy).ExcludeFromDescription();
 
         // The inbox: results not yet acknowledged, for the signed-in clinician's orders (or the whole clinic's).
-        app.MapGet("/api/results", async (bool? all, bool? reviewed, ClaimsPrincipal user, ClinicHubDbContext db) =>
+        app.MapGet("/api/results", async (bool? all, bool? reviewed, ClaimsPrincipal user, ClinicHubDbContext db, TimeProvider clock) =>
         {
             int? providerId = int.TryParse(user.FindFirstValue(AppClaims.ProviderId), out var p) ? p : null;
             var q = db.DiagnosticResults.AsNoTracking().AsQueryable();
             if (all != true && providerId is not null)
                 q = q.Where(r => r.ServiceRequest.RequesterProviderId == providerId);
             q = reviewed == true ? q.Where(r => r.ReviewedUtc != null) : q.Where(r => r.ReviewedUtc == null);
-            return await q.OrderByDescending(r => r.IsAbnormal).ThenByDescending(r => r.ReceivedUtc).Take(200).Select(Row(db)).ToListAsync();
+            var rows = await q.OrderByDescending(r => r.IsAbnormal).ThenByDescending(r => r.ReceivedUtc).Take(200).Select(Row(db)).ToListAsync();
+            return await HideWithheld(db, rows, user, clock.GetUtcNow().UtcDateTime);
         }).WithTags("Results").RequireAuthorization(Permissions.ResultsReview);
 
         app.MapPost("/api/results/{id:int}/review", async (int id, ClaimsPrincipal user, ClinicHubDbContext db, TimeProvider clock, HttpContext http) =>
@@ -52,13 +54,34 @@ public static class ResultEndpoints
             if (result is null)
                 return Results.NotFound();
             var now = clock.GetUtcNow().UtcDateTime;
+            var visit = await db.Encounters.AsNoTracking().Where(e => e.Id == result.ServiceRequest.EncounterId).Select(e => new { e.ProviderId, e.Status }).SingleAsync();
+            var decision = (await ConsentView.LoadAsync(db, result.ServiceRequest.PatientId, user, now)).Decide(result.ServiceRequest.EncounterId, visit.ProviderId, visit.Status);
+            if (decision.Withheld)
+                return Results.Problem("Withheld at the patient's request (PHIPA consent directive).", statusCode: StatusCodes.Status403Forbidden);
             result.ReviewedByUserId = user.RequiredUserId();
             result.ReviewedUtc = now;
             db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = user.RequiredUserId(), PatientId = result.ServiceRequest.PatientId,
-                Action = AccessActions.Edit, Context = $"Acknowledged result {id}", IpAddress = AuthEndpoints.Ip(http) });
+                Action = AccessActions.Edit, Context = $"Acknowledged result {id}", ConsentOverrideId = decision.OverrideId, IpAddress = AuthEndpoints.Ip(http) });
             await db.SaveChangesAsync();
             return Results.NoContent();
         }).WithTags("Results").RequireAuthorization(Permissions.ResultsReview);
+    }
+
+    /// <summary>A result from a visit the patient withheld from this person shows only that it exists.</summary>
+    private static async Task<List<ResultRow>> HideWithheld(ClinicHubDbContext db, List<ResultRow> rows, ClaimsPrincipal user, DateTime now)
+    {
+        var patients = rows.Select(r => r.PatientId).Distinct().ToList();
+        var guarded = await db.ConsentDirectives.Where(d => patients.Contains(d.PatientId) && d.RevokedUtc == null).Select(d => d.PatientId).Distinct().ToListAsync();
+        if (guarded.Count == 0)
+            return rows;
+        var encounterIds = rows.Where(r => guarded.Contains(r.PatientId)).Select(r => r.EncounterId).Distinct().ToList();
+        var visits = await db.Encounters.AsNoTracking().Where(e => encounterIds.Contains(e.Id)).ToDictionaryAsync(e => e.Id, e => new { e.ProviderId, e.Status });
+        var views = new Dictionary<int, ConsentView>();
+        foreach (var p in guarded)
+            views[p] = await ConsentView.LoadAsync(db, p, user, now);
+        return rows.Select(r => views.TryGetValue(r.PatientId, out var v) && v.Decide(r.EncounterId, visits[r.EncounterId].ProviderId, visits[r.EncounterId].Status).Withheld
+            ? r with { Summary = null, ExternalUrl = null, IsAbnormal = false, Withheld = true }
+            : r).ToList();
     }
 
     private static System.Linq.Expressions.Expression<Func<DiagnosticResult, ResultRow>> Row(ClinicHubDbContext db) => r => new ResultRow(

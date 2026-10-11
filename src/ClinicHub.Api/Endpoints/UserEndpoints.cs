@@ -26,7 +26,7 @@ public static class UserEndpoints
     public record RoleDto(int Id, string Name, string? Description, string[] Permissions, bool RequireTwoFactor, bool IsSystem, int UserCount);
     public record SaveRole(string Name, string? Description, string[] Permissions, bool RequireTwoFactor);
     public record AuditRow(long Id, DateTime AtUtc, string Type, string? Actor, string? Target, string? Detail, string? IpAddress);
-    public record AccessRow(long Id, DateTime AtUtc, string User, string Patient, string Mrn, string Action, string Context, string? IpAddress);
+    public record AccessRow(long Id, DateTime AtUtc, string User, string Patient, string Mrn, string Action, string Context, string? IpAddress, bool Override);
     public record ClinicDto(int Id, string Slug, string Name, string DatabaseName, bool IsActive, int Members, DateTime CreatedUtc);
     public record CreateClinic(string Slug, string Name);
 
@@ -283,7 +283,7 @@ public static class UserEndpoints
                     db.Users.Where(u => u.Id == l.UserId).Select(u => u.DisplayName).FirstOrDefault() ?? "",
                     db.Patients.Where(p => p.Id == l.PatientId).Select(p => p.LastName + ", " + p.FirstName).FirstOrDefault() ?? "",
                     db.Patients.Where(p => p.Id == l.PatientId).Select(p => p.Mrn).FirstOrDefault() ?? "",
-                    l.Action, l.Context, l.IpAddress)).ToListAsync();
+                    l.Action, l.Context, l.IpAddress, l.ConsentOverrideId != null)).ToListAsync();
         }).WithTags("Audit").RequireAuthorization(Permissions.AuditView);
 
         // ---- the platform: clinics ----

@@ -48,13 +48,14 @@ export default function Results() {
                 <span className={`badge ${r.status === 'Final' ? 'ohip' : 'rmb'}`}>{r.status}</span>
               </div>
             </header>
+            {r.withheld && <p className="muted small" style={{ margin: 0 }}>Withheld at the patient's request (consent directive). Open the visit to override in an emergency.</p>}
             {r.summary && <pre className="result-text">{r.summary}</pre>}
             <footer>
               <Link to={`/visits/${r.encounterId}`}>Open visit</Link>
               {r.externalUrl && <a href={r.externalUrl} target="_blank" rel="noreferrer">Full report ↗</a>}
               {r.reviewedUtc
                 ? <span className="muted small">Acknowledged {localDateTime(r.reviewedUtc)}{r.reviewedBy ? ` by ${r.reviewedBy}` : ''}</span>
-                : <button className="primary small" onClick={() => acknowledge(r)}>Acknowledge</button>}
+                : !r.withheld && <button className="primary small" onClick={() => acknowledge(r)}>Acknowledge</button>}
             </footer>
           </article>
         ))}

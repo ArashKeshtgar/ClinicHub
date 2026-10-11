@@ -31,7 +31,7 @@ public static class OrderEndpoints
             .WithTags("Orders").RequireAuthorization(Permissions.EncountersView);
 
         app.MapGet("/api/encounters/{id:int}/orders", async (int id, ClinicHubDbContext db) => await Orders(db, id))
-            .WithTags("Orders").RequireAuthorization(Permissions.EncountersView);
+            .WithTags("Orders").RequireAuthorization(Permissions.EncountersView).AddEndpointFilter(ConsentEndpoints.EncounterFilter);
 
         app.MapPost("/api/encounters/{id:int}/orders", async (int id, PlaceOrders req, ClaimsPrincipal user, ClinicHubDbContext db,
             CatalogDbContext catalog, TimeProvider clock, HttpContext http) =>
@@ -92,7 +92,7 @@ public static class OrderEndpoints
                 await tx.CommitAsync();
             });
             return Results.Ok(await Orders(db, id));
-        }).WithTags("Orders").RequireAuthorization(Permissions.OrdersManage);
+        }).WithTags("Orders").RequireAuthorization(Permissions.OrdersManage).AddEndpointFilter(ConsentEndpoints.EncounterFilter);
 
         // Withdrawing an order. Not delivered yet: it is taken out of its message here. Delivered: the application is
         // asked, and it decides (a lab that has resulted the specimen, a report already started, say no).

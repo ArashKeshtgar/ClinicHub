@@ -58,7 +58,9 @@ patient data leaves the offline copy.
 - [x] Master patient index: registration and corrections with health card checks, likely duplicates stopped at
       registration, a review queue of records that may be the same person, and merge, see
       [docs/architecture.md](docs/architecture.md#master-patient-index)
-- [ ] PHIPA consent directives (lockbox) and emergency override: the tables exist, nothing uses them yet
+- [x] PHIPA consent directives (lockbox): the entire record, one visit, or everything from one provider; the visit
+      shows "withheld at the patient's request"; emergency override for an hour with a reason, logged and listed for
+      the privacy officer, see [docs/architecture.md](docs/architecture.md#consent-directives-phipa-lockbox)
 - [x] ClinicHub as an OpenID Connect provider: code flow with PKCE, refresh, userinfo, sign-out; tokens carry the
       clinic and only the requesting application's permissions; ClinicReport and LabFlow permissions are part
       of each clinic's roles

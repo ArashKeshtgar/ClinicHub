@@ -34,7 +34,7 @@ public static class EncounterEndpoints
         DateTime? EndedUtc, DateTime? SignedUtc, string? SignedBy, Banner Patient, ProviderBrief Provider, int? AppointmentId,
         string? AppointmentStatus, string? Room, EligibilityBrief? Eligibility, VitalsDto[] Vitals, NoteDto? Note,
         DiagnosisDto[] Diagnoses, ServiceDto[] Services, decimal InsuredTotal, decimal UninsuredTotal, string[] ReadyToSign,
-        BillingDto? Billing, HistoryRow[] History);
+        BillingDto? Billing, HistoryRow[] History, int WithheldVisits);
 
     public record VitalsRequest(short? SystolicMmHg, short? DiastolicMmHg, short? HeartRate, short? RespiratoryRate,
         decimal? TemperatureC, byte? SpO2, decimal? WeightKg, decimal? HeightCm);
@@ -46,7 +46,8 @@ public static class EncounterEndpoints
 
     public static void MapEncounterEndpoints(this IEndpointRouteBuilder app)
     {
-        var api = app.MapGroup("/api/encounters").WithTags("Encounters");
+        // A visit withheld by a consent directive answers 403 on every route that names it.
+        var api = app.MapGroup("/api/encounters").WithTags("Encounters").AddEndpointFilter(ConsentEndpoints.EncounterFilter);
 
         // The day's visits for one provider (default: the signed-in one) or the whole clinic, plus their unsigned backlog.
         api.MapGet("/", async (DateOnly? date, int? providerId, bool? all, ClaimsPrincipal user, ClinicHubDbContext db, TimeProvider clock) =>
@@ -70,9 +71,9 @@ public static class EncounterEndpoints
             if (e is null)
                 return Results.NotFound();
             db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = clock.GetUtcNow().UtcDateTime, UserId = user.RequiredUserId(), PatientId = e.PatientId,
-                Action = AccessActions.View, Context = $"Encounter {id}", IpAddress = AuthEndpoints.Ip(http) });
+                Action = AccessActions.View, Context = $"Encounter {id}", ConsentOverrideId = ConsentEndpoints.OverrideId(http), IpAddress = AuthEndpoints.Ip(http) });
             await db.SaveChangesAsync();
-            return Results.Ok(await Detail(db, id, clock));
+            return Results.Ok(await Detail(db, id, clock, user));
         }).RequireAuthorization(Permissions.EncountersView);
 
         // The clinician walks in (Roomed → with the provider) and out (→ completed). Signing is separate: often at the end of the day.
@@ -96,7 +97,7 @@ public static class EncounterEndpoints
                 TemperatureC = req.TemperatureC, SpO2 = req.SpO2, WeightKg = req.WeightKg, HeightCm = req.HeightCm,
             });
             await db.SaveChangesAsync();
-            return Results.Ok(await Detail(db, id, clock));
+            return Results.Ok(await Detail(db, id, clock, user));
         }).RequireAuthorization(Permissions.EncountersDocument);
 
         // Saved as the clinician types (the page sends it after a pause), so it returns only the time it was saved.
@@ -134,7 +135,7 @@ public static class EncounterEndpoints
         }).RequireAuthorization(Permissions.EncountersDocument);
 
         // Diagnosis and fee codes are the billing decision, so only those who can sign may set them.
-        api.MapPut("/{id:int}/coding", async (int id, CodingRequest req, ClinicHubDbContext db, TimeProvider clock) =>
+        api.MapPut("/{id:int}/coding", async (int id, CodingRequest req, ClaimsPrincipal user, ClinicHubDbContext db, TimeProvider clock) =>
         {
             var e = await db.Encounters.Include(x => x.Diagnoses).Include(x => x.Services).SingleOrDefaultAsync(x => x.Id == id);
             if (Locked(e) is { } locked)
@@ -184,7 +185,7 @@ public static class EncounterEndpoints
             e.Diagnoses.AddRange(req.Diagnoses.Select(d => new EncounterDiagnosis { DiagnosticCodeCode = d.Code.Trim(), IsPrimary = d.IsPrimary }));
             e.Services.AddRange(services);
             await db.SaveChangesAsync();
-            return Results.Ok(await Detail(db, id, clock));
+            return Results.Ok(await Detail(db, id, clock, user));
         }).RequireAuthorization(Permissions.EncountersSign);
 
         api.MapPost("/{id:int}/sign", async (int id, ClaimsPrincipal user, ClinicHubDbContext db, TimeProvider clock, HttpContext http) =>
@@ -213,7 +214,7 @@ public static class EncounterEndpoints
             {
                 return Results.Problem("The visit changed while you were signing. Review it and sign again.", statusCode: StatusCodes.Status409Conflict);
             }
-            return Results.Ok(await Detail(db, id, clock));
+            return Results.Ok(await Detail(db, id, clock, user));
         }).RequireAuthorization(Permissions.EncountersSign);
 
         // A signed note never changes; a correction is appended with its author and time.
@@ -232,7 +233,7 @@ public static class EncounterEndpoints
             var entry = $"[{local:yyyy-MM-dd HH:mm}, {user.Identity!.Name}] {text}";
             e.Note.Addendum = e.Note.Addendum is null ? entry : e.Note.Addendum + "\n\n" + entry;
             await db.SaveChangesAsync();
-            return Results.Ok(await Detail(db, id, clock));
+            return Results.Ok(await Detail(db, id, clock, user));
         }).RequireAuthorization(Permissions.EncountersDocument);
 
         app.MapGet("/api/codes", async (ClinicHubDbContext db) => new
@@ -289,7 +290,7 @@ public static class EncounterEndpoints
         {
             return Results.Problem("Someone else just moved this patient. Refresh and try again.", statusCode: StatusCodes.Status409Conflict);
         }
-        return Results.Ok(await Detail(db, id, clock));
+        return Results.Ok(await Detail(db, id, clock, user));
     }
 
     public static Dictionary<string, string[]> ValidateVitals(VitalsRequest v)
@@ -330,7 +331,7 @@ public static class EncounterEndpoints
             r.e.StartedUtc, r.HasVitals, r.HasNote, r.Coded)).ToArray();
     }
 
-    private static async Task<EncounterDetail> Detail(ClinicHubDbContext db, int id, TimeProvider clock)
+    private static async Task<EncounterDetail> Detail(ClinicHubDbContext db, int id, TimeProvider clock, ClaimsPrincipal user)
     {
         db.ChangeTracker.Clear();
         var e = await db.Encounters.AsNoTracking().AsSplitQuery()
@@ -352,10 +353,13 @@ public static class EncounterEndpoints
             .OrderByDescending(x => x.CheckInUtc).Take(10)
             .Select(x => new
             {
-                x.Id, x.CheckInUtc, x.Status, Provider = x.Provider.LastName, x.Provider.Title,
+                x.Id, x.CheckInUtc, x.Status, x.ProviderId, Provider = x.Provider.LastName, x.Provider.Title,
                 Dx = x.Diagnoses.Where(d => d.IsPrimary).Select(d => d.DiagnosticCode.Description).FirstOrDefault(),
                 Assessment = x.Note != null ? x.Note.Assessment : null,
             }).ToListAsync();
+        // Earlier visits the patient withheld from this person are left out; the page says how many.
+        var consent = await ConsentView.LoadAsync(db, e.PatientId, user, clock.GetUtcNow().UtcDateTime);
+        var shown = history.Where(h => !consent.Decide(h.Id, h.ProviderId, h.Status).Withheld).ToList();
 
         BillingDto? billing = null;
         if (e.Status == EncounterStatus.Signed)
@@ -381,7 +385,8 @@ public static class EncounterEndpoints
             e.Diagnoses.OrderByDescending(d => d.IsPrimary).ThenBy(d => d.Id).Select(d => new DiagnosisDto(d.DiagnosticCodeCode, d.DiagnosticCode.Description, d.IsPrimary)).ToArray(),
             services, services.Where(s => s.Insured).Sum(s => s.Fee), services.Where(s => !s.Insured).Sum(s => s.Fee),
             e.Status == EncounterStatus.Open ? ReadyToSign(e) : [], billing,
-            history.Select(h => new HistoryRow(h.Id, h.CheckInUtc, $"{h.Title} {h.Provider}".Trim(), h.Status, h.Dx, h.Assessment)).ToArray());
+            shown.Select(h => new HistoryRow(h.Id, h.CheckInUtc, $"{h.Title} {h.Provider}".Trim(), h.Status, h.Dx, h.Assessment)).ToArray(),
+            history.Count - shown.Count);
     }
 
     public static decimal? Bmi(decimal? weightKg, decimal? heightCm) =>

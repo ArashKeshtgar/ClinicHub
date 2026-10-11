@@ -86,6 +86,7 @@ app.MapGet("/api/settings", (IOptions<DemoOptions> demo) => new { Demo = demo.Va
 app.MapAuthEndpoints();
 app.MapFrontDeskEndpoints();
 app.MapPatientEndpoints();
+app.MapConsentEndpoints();
 app.MapEncounterEndpoints();
 app.MapBillingEndpoints();
 app.MapUserEndpoints();

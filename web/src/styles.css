@@ -326,3 +326,12 @@ fieldset.patient-form legend + * { clear: both; }
 .tab .count { display: inline-block; margin-left: .35rem; min-width: 1.3rem; padding: 0 .35rem; border-radius: 999px; background: var(--waiting); color: #fff; font-size: .75rem; text-align: center; }
 table.compare th[scope], table.compare tbody th { font-size: .8rem; color: var(--muted); white-space: nowrap; background: transparent; }
 table.compare td.diff { background: var(--waiting-soft); font-weight: 600; }
+
+/* Consent directives */
+.consent-panel { display: grid; gap: .5rem; border-top: 1px solid var(--border); padding-top: .8rem; }
+.consent-panel h3 { margin: 0; font-size: 1rem; }
+.directives { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+.directives li { display: flex; justify-content: space-between; gap: .5rem; align-items: flex-start; padding: .5rem .7rem; border-left: 3px solid var(--roomed); background: var(--roomed-soft); border-radius: 0 8px 8px 0; }
+.directives li.revoked { border-left-color: var(--border); background: var(--surface-2); color: var(--muted); }
+.consent-form { display: grid; gap: .6rem; padding: .7rem; border: 1px solid var(--border); border-radius: 10px; }
+.withheld { display: grid; gap: .6rem; border-top: 4px solid var(--roomed); }

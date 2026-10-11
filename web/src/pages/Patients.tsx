@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import {
-  api, ApiError, can, firstError, localDateTime, mpi,
-  type DuplicatePair, type DuplicateRow, type DuplicateStatus, type PatientBrief, type PatientDetail, type PatientFields, type PossibleDuplicate,
+  api, ApiError, can, consent, CONSENT_SCOPES, firstError, localDateTime, mpi,
+  type ConsentInfo, type ConsentScope, type DuplicatePair, type DuplicateRow, type DuplicateStatus, type PatientBrief, type PatientDetail, type PatientFields, type PossibleDuplicate,
 } from '../api'
 import { useSession } from '../App'
 
@@ -176,6 +176,7 @@ function PatientEditor({ patient, onClose, onOpen }: { patient: PatientDetail | 
 
       {msg && <p className={`result ${msg.ok ? 'ok' : 'warn'}`}>{msg.text}{cardHolder && <> <button className="small" onClick={() => onOpen(cardHolder.id)}>Open {cardHolder.name}</button></>}</p>}
       {editable && !matches && <div className="dialog-actions"><button className="primary" onClick={() => save()}>{current ? 'Save corrections' : 'Register'}</button></div>}
+      {current && !current.mergedInto && <ConsentPanel patientId={current.id} />}
     </aside>
   )
 }
@@ -385,5 +386,96 @@ function PairReview({ id, onClose, onDecided }: { id: number; onClose: () => voi
         </>
       )}
     </aside>
+  )
+}
+
+// ---- consent directives ----
+
+/** What the patient withholds (PHIPA lockbox). Everyone who can see the patient sees that there is one; the privacy officer records it. */
+function ConsentPanel({ patientId }: { patientId: number }) {
+  const { me } = useSession()
+  const manage = can(me, 'consent.manage')
+  const [info, setInfo] = useState<ConsentInfo | null>(null)
+  const [adding, setAdding] = useState(false)
+  const [form, setForm] = useState<{ scope: ConsentScope; encounterId: string; excludedProviderId: string; note: string }>({ scope: 'EntireRecord', encounterId: '', excludedProviderId: '', note: '' })
+  const [errors, setErrors] = useState<Record<string, string[]>>({})
+  const [error, setError] = useState<string | null>(null)
+  const load = useCallback(() => consent.get(patientId).then(setInfo).catch(() => setInfo(null)), [patientId])
+  useEffect(() => { load() }, [load])
+
+  const record = async () => {
+    setErrors({}); setError(null)
+    try {
+      await consent.record(patientId, {
+        scope: form.scope, note: form.note || null,
+        encounterId: form.scope === 'Encounter' ? Number(form.encounterId) || null : null,
+        excludedProviderId: form.scope === 'Provider' ? Number(form.excludedProviderId) || null : null,
+      })
+      setAdding(false); setForm({ scope: 'EntireRecord', encounterId: '', excludedProviderId: '', note: '' }); await load()
+    } catch (e) {
+      if (e instanceof ApiError && Object.keys(e.fieldErrors).length) setErrors(e.fieldErrors)
+      else setError(firstError(e, 'Not recorded.'))
+    }
+  }
+  const revoke = async (id: number) => {
+    if (!window.confirm('The patient withdraws this directive? Their record opens again to the care team.')) return
+    try { await consent.revoke(id); await load() } catch (e) { setError(firstError(e, 'Not withdrawn.')) }
+  }
+  const err = (k: string) => errors[k]?.[0] && <span className="error small">{errors[k][0]}</span>
+
+  if (!info) return null
+  const active = info.directives.filter(d => !d.revokedUtc)
+  return (
+    <section className="consent-panel">
+      <div className="panel-head" style={{ padding: 0, border: 0 }}>
+        <h3>Consent directives</h3>
+        {manage && !adding && <button className="small" onClick={() => setAdding(true)}>Record a directive</button>}
+      </div>
+      {info.directives.length === 0 && <p className="muted small" style={{ margin: 0 }}>None: the care team sees the whole record.</p>}
+      {info.overrideUntilUtc && <p className="result warn" style={{ margin: 0 }}>You opened this record under an emergency override until {localDateTime(info.overrideUntilUtc)}.</p>}
+      <ul className="directives">
+        {info.directives.map(d => (
+          <li key={d.id} className={d.revokedUtc ? 'revoked' : ''}>
+            <div>
+              <strong>{CONSENT_SCOPES[d.scope]}</strong>
+              {d.scope === 'Encounter' && d.encounterUtc && <> · visit of {localDateTime(d.encounterUtc)}{d.encounterProvider ? ` (${d.encounterProvider})` : ''}</>}
+              {d.scope === 'Provider' && d.excludedProvider && <> · {d.excludedProvider}</>}
+              {d.note && <div className="small">{d.note}</div>}
+              <div className="muted small">
+                Recorded {localDateTime(d.createdUtc)} by {d.recordedBy}{d.revokedUtc ? ` · withdrawn ${localDateTime(d.revokedUtc)}` : ''}
+                {d.overrides > 0 && <> · <span className="error">{d.overrides} {d.overrides === 1 ? 'override' : 'overrides'}</span></>}
+              </div>
+            </div>
+            {manage && !d.revokedUtc && <button className="small quiet" onClick={() => revoke(d.id)}>Withdraw</button>}
+          </li>
+        ))}
+      </ul>
+      {active.length > 0 && <p className="muted small" style={{ margin: 0 }}>
+        Withheld: visits (notes, vitals, diagnoses, orders, results). Not withheld: who the patient is, appointments, billing.</p>}
+      {adding && (
+        <div className="consent-form">
+          <label>What the patient withholds
+            <select value={form.scope} onChange={e => setForm({ ...form, scope: e.target.value as ConsentScope })}>
+              <option value="EntireRecord">Entire record: each visit only for the provider who saw them</option>
+              <option value="Encounter">One visit: only for the provider who saw them</option>
+              <option value="Provider">Everything, from one provider</option>
+            </select>{err('scope')}
+          </label>
+          {form.scope === 'Encounter' && <label>Visit
+            <select value={form.encounterId} onChange={e => setForm({ ...form, encounterId: e.target.value })}>
+              <option value="">Choose…</option>
+              {info.visits.map(v => <option key={v.id} value={v.id}>{localDateTime(v.checkInUtc)} · {v.provider}</option>)}
+            </select>{err('encounterId')}</label>}
+          {form.scope === 'Provider' && <label>Provider
+            <select value={form.excludedProviderId} onChange={e => setForm({ ...form, excludedProviderId: e.target.value })}>
+              <option value="">Choose…</option>
+              {info.providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>{err('excludedProviderId')}</label>}
+          <label>Note<input value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} placeholder="How the patient asked, e.g. in writing at the front desk" />{err('note')}</label>
+          <div className="dialog-actions"><button onClick={() => setAdding(false)}>Cancel</button><button className="primary" onClick={record}>Record</button></div>
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+    </section>
   )
 }

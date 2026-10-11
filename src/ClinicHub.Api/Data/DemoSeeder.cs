@@ -117,6 +117,7 @@ public static class DemoSeeder
             await SeedDay(db, profile, day, nowUtc);
         await SeedEncounters(db, profile, today);
         await SeedBillingDemo(db, today, nowUtc);
+        await SeedConsentDemo(db, profile, nowUtc);
     }
 
     /// <summary>
@@ -281,6 +282,29 @@ public static class DemoSeeder
             }
 
         db.Patients.AddRange(SyntheticPatients(profile.Patients, nowUtc, profile.MrnPrefix, profile.Seed));
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// One patient who asked that their visits be seen only by the provider who saw them (a PHIPA consent directive on
+    /// the entire record), recorded by the privacy officer: a signed visit by someone other than Dr. Patel, so she sees
+    /// "withheld" and can try the emergency override. Once per clinic that has a privacy officer.
+    /// </summary>
+    private static async Task SeedConsentDemo(ClinicHubDbContext db, DemoClinic profile, DateTime nowUtc)
+    {
+        if (!profile.Members.Any(m => m.Role == SystemRoles.PrivacyOfficer) || await db.ConsentDirectives.AnyAsync())
+            return;
+        var officer = profile.Members.First(m => m.Role == SystemRoles.PrivacyOfficer).UserName;
+        var privacy = await db.Users.SingleAsync(u => u.UserName == officer);
+        var visit = await db.Encounters.Where(e => e.Status == EncounterStatus.Signed && e.Provider.LastName != "Patel")
+            .OrderBy(e => e.Id).Select(e => new { e.PatientId }).FirstOrDefaultAsync();
+        if (visit is null)
+            return;
+        db.ConsentDirectives.Add(new ConsentDirective
+        {
+            PatientId = visit.PatientId, Scope = ConsentScopes.EntireRecord, RecordedByUserId = privacy.Id, CreatedUtc = nowUtc,
+            Note = "Asked at the front desk: each visit only for the provider who saw me.",
+        });
         await db.SaveChangesAsync();
     }
 
