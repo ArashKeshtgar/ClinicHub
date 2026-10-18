@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+**/node_modules/
+web/dist/
+web/*.tsbuildinfo
+tests/
+docs/
+.git/
+.github/
+.vs/
+.vscode/
+.claude/
+**/*.bak

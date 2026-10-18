@@ -70,7 +70,9 @@ patient data leaves the offline copy.
 - [x] The clinic's money to the group's accounting (FinancePowerApp): claims, remittances, physicians' shares,
       invoices and payments as financial documents, no health information, see
       [docs/architecture.md](docs/architecture.md#money-to-the-accounting-financepowerapp)
-- [ ] Clinic operations dashboard; Docker image and public demo
+- [x] Docker image (API and web in one container) and a public demo mode with locked accounts, see
+      [Run it in Docker](#run-it-in-docker)
+- [ ] Clinic operations dashboard
 
 ## Run it
 
@@ -92,6 +94,34 @@ dotnet test                                    # creates and drops throw-away ca
 
 Development runs the demo clinics: the sign-in page offers one-click staff roles. Dr. Patel works at both clinics and
 chooses one after signing in; the administrator can open a new clinic from **Clinics**.
+
+## Run it in Docker
+
+One image serves the API and the React app on port 8080. It needs a SQL Server reached with a **SQL login that may
+create databases** (`dbcreator`): ClinicHub creates its catalog and one database per clinic itself, at start-up and
+whenever an administrator opens a clinic.
+
+```bash
+docker build -t clinichub .
+docker run -d --name clinichub -p 127.0.0.1:5300:8080 -v clinichub-data:/data \
+  -e ConnectionStrings__Catalog="Server=sql,1433;Database=ClinicHub_Catalog;User Id=clinichub_svc;Password=...;TrustServerCertificate=True" \
+  -e ConnectionStrings__ClinicServer="Server=sql,1433;User Id=clinichub_svc;Password=...;TrustServerCertificate=True" \
+  -e Demo__Enabled=true \
+  clinichub
+```
+
+| Variable | Purpose |
+| --- | --- |
+| `ConnectionStrings__Catalog`, `ConnectionStrings__ClinicServer` | The catalog database, and the server the clinic databases are created on |
+| `Demo__Enabled=true` | The two synthetic demo clinics and one-click demo sign-in. **Never** with real patients |
+| `Demo__LockAccounts=true` | Public demo: accounts, roles, passwords and clinics can't be changed, since every visitor can be an administrator |
+| `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` | Behind a TLS-terminating reverse proxy, so the sign-in server sees HTTPS (it refuses plain HTTP outside development) |
+| `Sso__Issuer` | The address applications know ClinicHub by, e.g. `https://hub.example.ca/` |
+| `Sso__SigningCertificatePath`, `Sso__SigningCertificatePassword` | A PFX to sign tokens with; without one a self-signed certificate is made and kept in `/data` |
+| `Integrations__LabFlow__FhirBaseUrl`, `Integrations__ClinicReport__FhirBaseUrl`, `Integrations__Finance__BaseUrl` | The connected applications; left empty (the default outside development), orders and financial documents wait |
+
+Keep the `/data` volume: its data-protection keys encrypt two-factor secrets and clinic connection strings, and
+without them those can't be read again. Back up the `ClinicHub_*` databases.
 
 ## Notes on Ontario specifics
 
