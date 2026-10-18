@@ -15,6 +15,8 @@ public class SsoTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     public const string Secret = "test-clinicreport-secret";
     public const string RedirectUri = "https://report.test/signin-oidc";
+    public const string AnalyticsOrigin = "https://analytics.test";
+    public const string AnalyticsRedirectUri = AnalyticsOrigin + "/signin-oidc";
 
     private record Pkce(string Verifier, string Challenge);
 
@@ -127,6 +129,80 @@ public class SsoTests(ApiFactory factory) : IClassFixture<ApiFactory>
         }));
         Assert.Equal(HttpStatusCode.BadRequest, refresh.StatusCode);
         Assert.Contains("invalid_grant", await refresh.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>Analytics' dashboard: a public client in the browser, code flow with PKCE and no secret.</summary>
+    private async Task<HttpResponseMessage> SignInToAnalytics(HttpClient person)
+    {
+        var pkce = NewPkce();
+        var authorize = await person.GetAsync(
+            $"/connect/authorize?client_id=analytics&response_type=code&scope=openid%20profile" +
+            $"&redirect_uri={Uri.EscapeDataString(AnalyticsRedirectUri)}&state=s1&code_challenge={pkce.Challenge}&code_challenge_method=S256");
+        Assert.Equal(HttpStatusCode.Redirect, authorize.StatusCode);
+        Assert.StartsWith(AnalyticsRedirectUri, authorize.Headers.Location!.ToString());
+        var code = Query(authorize.Headers.Location!)["code"];
+
+        var page = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/connect/token")
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = AnalyticsRedirectUri,
+                ["client_id"] = "analytics", ["code_verifier"] = pkce.Verifier,
+            }),
+        };
+        request.Headers.Add("Origin", AnalyticsOrigin);
+        return await page.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task Analytics_signs_in_from_the_browser_and_its_token_carries_only_its_permissions()
+    {
+        var dr = await factory.SignInAsync("dr.patel", "harbourview", followRedirects: false);
+        var response = await SignInToAnalytics(dr);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(AnalyticsOrigin, response.Headers.GetValues("Access-Control-Allow-Origin").Single());
+
+        var access = Payload((string)(await Json(response))["access_token"]!);
+        Assert.Equal("harbourview", (string)access["clinic_slug"]!);
+        Assert.Equal("Dr. Nadia Patel", (string)access["name"]!);
+        // One permission is a string in the token, several an array; a physician has the clinic's dashboards only.
+        var permission = access["permission"]!;
+        var permissions = permission is JsonArray list ? list.Select(p => (string)p!).ToList() : [(string)permission!];
+        Assert.Equal(["dashboard.view"], permissions);
+    }
+
+    [Fact]
+    public async Task The_administrator_gets_every_Analytics_permission_and_billing_none()
+    {
+        var admin = await factory.SignInAsync("admin", "harbourview", followRedirects: false);
+        var access = Payload((string)(await Json(await SignInToAnalytics(admin)))["access_token"]!);
+        Assert.Equal(["dashboard.view", "group.view", "models.view"], access["permission"]!.AsArray().Select(p => (string)p!).Order());
+
+        var billing = await factory.SignInAsync("billing", followRedirects: false);
+        var refused = await billing.GetAsync(
+            $"/connect/authorize?client_id=analytics&response_type=code&scope=openid&redirect_uri={Uri.EscapeDataString(AnalyticsRedirectUri)}" +
+            $"&state=s&code_challenge={NewPkce().Challenge}&code_challenge_method=S256");
+        Assert.Equal(HttpStatusCode.Redirect, refused.StatusCode);
+        Assert.Equal("access_denied", Query(refused.Headers.Location!)["error"]);
+    }
+
+    [Fact]
+    public async Task Only_a_listed_origin_may_read_the_sign_in_endpoints_from_a_page()
+    {
+        var client = factory.CreateClient();
+        async Task<string?> AllowedFor(string origin, string path)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Add("Origin", origin);
+            var res = await client.SendAsync(request);
+            return res.Headers.TryGetValues("Access-Control-Allow-Origin", out var v) ? v.Single() : null;
+        }
+        Assert.Equal(AnalyticsOrigin, await AllowedFor(AnalyticsOrigin, "/.well-known/openid-configuration"));
+        Assert.Equal(AnalyticsOrigin, await AllowedFor(AnalyticsOrigin, "/.well-known/jwks"));
+        Assert.Null(await AllowedFor("https://elsewhere.test", "/.well-known/openid-configuration"));
+        // ClinicHub's own API is not opened to other origins.
+        Assert.Null(await AllowedFor(AnalyticsOrigin, "/api/settings"));
     }
 
     [Fact]

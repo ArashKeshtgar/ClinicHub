@@ -79,6 +79,7 @@ app.UseStaticFiles();
 if (app.Environment.IsDevelopment())
     app.MapOpenApi().AllowAnonymous();
 app.UseRateLimiter();
+app.UseSsoCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseCsrfHeaderCheck();

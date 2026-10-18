@@ -36,6 +36,11 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Sso:Clients:1:DisplayName", "LabFlow");
         builder.UseSetting("Sso:Clients:1:ClientSecret", "test-labflow-secret");
         builder.UseSetting("Sso:Clients:1:RedirectUris:0", "https://lab.test/signin-oidc");
+        // A browser application: public (no secret), and allowed to call the sign-in endpoints from its page.
+        builder.UseSetting("Sso:Clients:2:ClientId", "analytics");
+        builder.UseSetting("Sso:Clients:2:DisplayName", "Analytics");
+        builder.UseSetting("Sso:Clients:2:RedirectUris:0", SsoTests.AnalyticsRedirectUri);
+        builder.UseSetting("Sso:Clients:2:CorsOrigins:0", SsoTests.AnalyticsOrigin);
         builder.UseSetting("Sso:Issuer", "http://localhost/");
         // Orders: no background worker (tests dispatch on demand), and stand-in applications.
         builder.UseSetting("Integrations:PollSeconds", "0");

@@ -31,6 +31,7 @@ public static class Permissions
     {
         public const string ClinicReport = "clinicreport";
         public const string LabFlow = "labflow";
+        public const string Analytics = "analytics";
     }
 
     // ClinicReport: structured diagnostic reports (echo, ECG).
@@ -48,6 +49,11 @@ public static class Permissions
     public const string LabResultsView = "labflow:results.view";
     public const string LabResultsEnter = "labflow:results.enter";
     public const string LabAdmin = "labflow:admin";
+
+    // Analytics: the group's dashboards (de-identified, no patient data).
+    public const string AnalyticsDashboard = "analytics:dashboard.view";
+    public const string AnalyticsGroup = "analytics:group.view";
+    public const string AnalyticsModels = "analytics:models.view";
 
     public record Info(string Key, string Group, string Label, string? App = null);
 
@@ -84,6 +90,10 @@ public static class Permissions
         new(LabResultsView, "LabFlow", "View lab results", Apps.LabFlow),
         new(LabResultsEnter, "LabFlow", "Enter, correct and release lab results", Apps.LabFlow),
         new(LabAdmin, "LabFlow", "Lab administration", Apps.LabFlow),
+
+        new(AnalyticsDashboard, "Analytics", "The clinic's dashboards (money and operations)", Apps.Analytics),
+        new(AnalyticsGroup, "Analytics", "Every business of the group side by side", Apps.Analytics),
+        new(AnalyticsModels, "Analytics", "Forecasts and anomaly models", Apps.Analytics),
     ];
 
     public static readonly string[] All = Catalog.Select(p => p.Key).ToArray();
@@ -126,7 +136,7 @@ public static class SystemRoles
             [Permissions.PatientsView, Permissions.ScheduleView, Permissions.EncountersView, Permissions.EncountersDocument, Permissions.EncountersSign,
              Permissions.OrdersManage, Permissions.ResultsReview, Permissions.BillingView, Permissions.ConsentOverride,
              Permissions.ReportsView, Permissions.ReportsCreate, Permissions.ReportsEdit, Permissions.ReportsSign, Permissions.ReportPatientsManage,
-             Permissions.LabResultsView]),
+             Permissions.LabResultsView, Permissions.AnalyticsDashboard]),
         (Billing, "OHIP claims, remittance and invoices.",
             [Permissions.PatientsView, Permissions.ScheduleView, Permissions.BillingView, Permissions.BillingManage]),
         (PrivacyOfficer, "Consent directives, the PHIPA access logs and duplicate patient records.",

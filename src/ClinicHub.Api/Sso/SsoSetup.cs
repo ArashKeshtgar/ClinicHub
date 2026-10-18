@@ -19,6 +19,12 @@ public class SsoClient
 
     /// <summary>Where people open the application, for the list of applications on ClinicHub.</summary>
     public string? LaunchUrl { get; set; }
+
+    /// <summary>
+    /// Origins of an application that runs in the browser and calls the discovery document, the keys and the token
+    /// endpoint itself (a public client such as Analytics' dashboard), e.g. http://localhost:5601. Empty: none.
+    /// </summary>
+    public string[] CorsOrigins { get; set; } = [];
 }
 
 public class SsoOptions
@@ -60,6 +66,18 @@ public static class SsoClaims
 
 public static class SsoSetup
 {
+    public const string CorsPolicy = "sso";
+
+    /// <summary>
+    /// CORS for the sign-in endpoints a browser application calls with fetch, only for the origins clients list.
+    /// Before authentication: OpenIddict answers these requests there.
+    /// </summary>
+    public static void UseSsoCors(this WebApplication app) =>
+        app.UseWhen(ctx => ctx.Request.Path.StartsWithSegments("/.well-known")
+                || ctx.Request.Path.StartsWithSegments("/connect/token")
+                || ctx.Request.Path.StartsWithSegments("/connect/userinfo"),
+            branch => branch.UseCors(CorsPolicy));
+
     /// <summary>
     /// ClinicHub as an OpenID Connect provider: authorization code flow with PKCE, refresh tokens, userinfo
     /// and sign-out. Registered applications, authorizations and tokens are stored in the catalog database.
@@ -68,6 +86,9 @@ public static class SsoSetup
     {
         services.Configure<SsoOptions>(config.GetSection("Sso"));
         var sso = config.GetSection("Sso").Get<SsoOptions>() ?? new SsoOptions();
+        // Browser applications (public clients) read the discovery document and keys and redeem codes from their page.
+        var origins = sso.Clients.SelectMany(c => c.CorsOrigins).Distinct().ToArray();
+        services.AddCors(o => o.AddPolicy(CorsPolicy, p => p.WithOrigins(origins).WithMethods("GET", "POST").AllowAnyHeader()));
 
         services.AddOpenIddict()
             .AddCore(o => o.UseEntityFrameworkCore().UseDbContext<CatalogDbContext>())
