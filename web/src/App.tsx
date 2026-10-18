@@ -144,7 +144,7 @@ function safeReturnUrl() {
   return url && url.startsWith('/connect/authorize?') ? url : null
 }
 
-const APP_NAMES: Record<string, string> = { clinicreport: 'ClinicReport', labflow: 'LabFlow' }
+const APP_NAMES: Record<string, string> = { clinicreport: 'ClinicReport', labflow: 'LabFlow', analytics: 'Analytics' }
 function appName(returnUrl: string) {
   const id = new URLSearchParams(returnUrl.slice(returnUrl.indexOf('?'))).get('client_id') ?? ''
   return APP_NAMES[id] ?? id
