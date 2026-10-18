@@ -19,6 +19,9 @@ public static class FhirSystems
     /// <summary>College of Physicians and Surgeons of Ontario registration number (Canadian FHIR baseline).</summary>
     public const string Cpso = "https://fhir.infoway-inforoute.ca/NamingSystem/ca-on-license-physician";
 
+    /// <summary>Health Canada's Drug Identification Number, as HL7 registers its naming system.</summary>
+    public const string Din = "http://hl7.org/fhir/NamingSystem/ca-hc-din";
+
     /// <summary>OHIP billing number. ClinicHub's own system URI: confirm against the provincial naming system before production.</summary>
     public const string OhipBillingNumber = "urn:clinichub:ohip-billing-number";
 

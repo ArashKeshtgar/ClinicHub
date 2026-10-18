@@ -28,7 +28,7 @@ patient data leaves the offline copy.
 ## Status
 
 - [x] Mapping study: [docs/totalsystem-to-ontario.md](docs/totalsystem-to-ontario.md)
-- [x] Database schema: 40 tables in 8 SQL schemas, every relationship a foreign key, CHECK constraints for
+- [x] Database schema: 41 tables in 8 SQL schemas, every relationship a foreign key, CHECK constraints for
       health card format, visit states, billing rules — [docs/schema.md](docs/schema.md)
 - [x] One sign-in for every clinic, **one database per clinic**: a catalog of clinics, accounts and per-clinic
       roles; the clinic is chosen after signing in and can be switched —
@@ -70,6 +70,10 @@ patient data leaves the offline copy.
 - [x] The clinic's money to the group's accounting (FinancePowerApp): claims, remittances, physicians' shares,
       invoices and payments as financial documents, no health information, see
       [docs/architecture.md](docs/architecture.md#money-to-the-accounting-financepowerapp)
+- [x] Electronic prescriptions: a physician or nurse practitioner prescribes from a demo drug catalog (no controlled
+      drugs) at a visit; each goes to the pharmacy (PharmaFlow) as a FHIR MedicationRequest, through the outbox and
+      IntegrationHub, and can be cancelled (the pharmacy refuses once it has begun to dispense), see
+      [docs/architecture.md](docs/architecture.md#electronic-prescriptions). **PharmaFlow does not receive them yet.**
 - [ ] Docker image and public demo
 - [x] Clinic operations dashboard: the **Operations** page of [Analytics](https://github.com/ArashKeshtgar/Analytics)
       (orders, turnaround, cancellations), built from IntegrationHub's de-identified events

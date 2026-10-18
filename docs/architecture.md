@@ -215,6 +215,50 @@ sequenceDiagram
   the lab"). A refusal is an answer, not a failure: it is not retried.
 - A resulted order can no longer be cancelled.
 
+## Electronic prescriptions
+
+*Prescribe…* on the visit page, for a physician or a nurse practitioner (permission `prescriptions.write`, which the
+Physician role has and the nurse and front-desk roles do not). Each drug is one `Prescription`; the drugs written
+together share a number and one outgoing message, the way the tests of an order share a requisition.
+
+- **Who prescribes.** The signed-in person must be a clinician with a provider record at the clinic, of kind physician
+  or nurse practitioner, **with a college registration number** (409 otherwise: ask an administrator to add it).
+  Writing it is signing for it; the visit may be open or signed, not voided. The visit's consent directives apply
+  as for orders: a visit withheld from the prescriber cannot be prescribed in.
+- **What is written.** A drug from the catalog by DIN, directions (3 to 200 characters), a quantity (1 to 9999, in the
+  drug's unit), days of supply (optional, 1 to 365), refills (0 to 11), *no substitution*, a note for the pharmacist
+  (500). Up to 10 drugs at a time; a drug already prescribed at the same visit (not cancelled or failed) is refused,
+  and nothing is saved unless every line is right.
+- **The catalog is a demo.** `PrescriptionCatalog`: 29 drugs with the made-up DINs of PharmaFlow's demo catalog (99…),
+  never to be dispensed from; a production catalog comes from Health Canada's Drug Product Database. **Controlled
+  drugs are left out on purpose** (narcotics, benzodiazepines, stimulants: no refills, monitoring submission, stricter
+  rules for electronic transmission).
+- **One transaction, one message.** The prescriptions and their message are saved together; the outbox worker delivers
+  it to the pharmacy with the usual retries (10 s, 20 s, 40 s… up to 30 min, 12 tries, then *Not delivered* and *Try
+  again now*). `Integrations:PharmaFlow:FhirBaseUrl` is where it goes: PharmaFlow's `/fhir`, or IntegrationHub's route
+  `http://localhost:5700/route/pharmaflow/fhir`. Empty: the card says the pharmacy is not connected and prescriptions
+  wait.
+- **The Bundle** (IntegrationHub's contracts, flow 5): a transaction with the Patient and the Practitioner as in an order
+  (CPSO and OHIP billing numbers), then one `MedicationRequest` per drug: `identifier`
+  `urn:clinichub:{clinic}:prescription|{id}`, `groupIdentifier` `…:prescription-group|G{n}` (also the Bundle's own
+  identifier), the drug as a DIN coding (`http://hl7.org/fhir/NamingSystem/ca-hc-din`), the directions, `dispenseRequest`
+  (quantity and unit, refills, supply duration), `substitution.allowedBoolean`, the note. A Bundle sent again is the same
+  prescription.
+- **The token** is ClinicHub's own, like an order's, for the pharmacy: `aud` `pharmaflow`, scope **`prescriptions`**
+  (orders carry `orders`), `clinic_slug`.
+- **Cancelling.** *Cancel prescription*, with an optional reason. Not delivered yet: cancelled at once, taken out of
+  its message (a message with nothing left is removed). Delivered: *Cancelling…* and the same MedicationRequest goes
+  again with `status: cancelled`, a conditional `PUT MedicationRequest?identifier=…|{id}` and the reason in a note. A
+  `200` cancels it; **`409` (or 400, 404, 422) is the pharmacy saying no** (it has begun to dispense): the prescription
+  goes back to *At the pharmacy* with the answer as its note, and is not retried.
+- **Not checked here:** allergies, interactions and duplicate therapy. ClinicHub keeps no allergy list; the pharmacy
+  checks when it receives the prescription (PharmaFlow's reception does).
+- **Not built, said plainly.** PharmaFlow has no intake for these yet, so nothing has been seen to arrive in a real
+  pharmacy (tested against a fake one, and through IntegrationHub in a real run); no refill or renewal flow, no
+  dispensed or picked-up status coming back, no printing, no confidentiality label on a prescription of a patient with
+  a directive (IntegrationHub's contract flow 7), no merge message (flow 6), no allergy list, no controlled drugs,
+  and a demo catalog.
+
 ## Master patient index
 
 One record per person in each clinic's database. *Patients* (`/patients`) finds, registers and corrects them; the

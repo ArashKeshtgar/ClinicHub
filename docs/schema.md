@@ -124,18 +124,25 @@ erDiagram
 - **EncounterService**: what was done — an OHIP fee code or an uninsured service, units, fee.
 - **Referral**: to a specialty or named provider, urgency, channel (`Fax`, `eReferral`), status.
 
-## orders — LabFlow and ClinicReport
+## orders — LabFlow, ClinicReport and the pharmacy
 
 ```mermaid
 erDiagram
     ServiceRequest ||--o{ DiagnosticResult : returns
     ServiceRequest }o--|| Patient : for
     OutboxMessage }o..o| ServiceRequest : carries
+    Encounter ||--o{ Prescription : prescribes
+    Prescription }o--|| Provider : "written by"
+    OutboxMessage }o..o| Prescription : carries
     InboundMessage }o..o| DiagnosticResult : creates
 ```
 
 - **ServiceRequest**: target system (`LabFlow`, `ClinicReport`), code and display (LOINC panel or
   ClinicReport template key), priority, status, the other system's id.
+- **Prescription**: one drug written at a visit: its DIN and the name as the prescriber saw it, directions (sig),
+  quantity and unit, days of supply, refills (0 to 11), no-substitution, a note for the pharmacist, the number
+  the drugs written together share, status (`Draft`, `Accepted`, `Cancelling`, `Cancelled`, `Failed`), the
+  pharmacy's id. CHECK constraints: an 8-digit DIN, quantity above 0, refills 0 to 11, supply 1 to 365 days.
 - **DiagnosticResult**: status (`Preliminary`, `Final`, `Amended`), summary, abnormal flag, link to the
   full report, and **who reviewed it and when** — every result must be acknowledged by a clinician
   (results inbox).

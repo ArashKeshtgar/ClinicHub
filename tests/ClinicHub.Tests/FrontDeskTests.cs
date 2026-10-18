@@ -46,6 +46,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Integrations:PollSeconds", "0");
         builder.UseSetting("Integrations:LabFlow:FhirBaseUrl", "https://lab.test/fhir");
         builder.UseSetting("Integrations:ClinicReport:FhirBaseUrl", "https://report.test/fhir");
+        builder.UseSetting("Integrations:PharmaFlow:FhirBaseUrl", "https://pharmacy.test/fhir");
         builder.ConfigureTestServices(services =>
             services.AddHttpClient(ClinicHub.Api.Integrations.OutboxDispatcher.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Fhir));
     }

@@ -17,6 +17,7 @@ public static class Permissions
     public const string EncountersDocument = "encounters.document";
     public const string EncountersSign = "encounters.sign";
     public const string OrdersManage = "orders.manage";
+    public const string PrescriptionsWrite = "prescriptions.write";
     public const string ResultsReview = "results.review";
     public const string BillingView = "billing.view";
     public const string BillingManage = "billing.manage";
@@ -68,6 +69,7 @@ public static class Permissions
         new(EncountersDocument, "Care", "Record vitals and notes"),
         new(EncountersSign, "Care", "Sign visits"),
         new(OrdersManage, "Care", "Order tests and reports"),
+        new(PrescriptionsWrite, "Care", "Write and cancel electronic prescriptions"),
         new(ResultsReview, "Care", "Review and acknowledge results"),
         new(BillingView, "Billing", "View claims and invoices"),
         new(BillingManage, "Billing", "Submit claims, reconcile, take payments"),
@@ -134,7 +136,7 @@ public static class SystemRoles
              Permissions.LabFrontDesk, Permissions.LabResultsView]),
         (Physician, "Assesses, orders, signs and bills; reads and signs diagnostic reports.",
             [Permissions.PatientsView, Permissions.ScheduleView, Permissions.EncountersView, Permissions.EncountersDocument, Permissions.EncountersSign,
-             Permissions.OrdersManage, Permissions.ResultsReview, Permissions.BillingView, Permissions.ConsentOverride,
+             Permissions.OrdersManage, Permissions.PrescriptionsWrite, Permissions.ResultsReview, Permissions.BillingView, Permissions.ConsentOverride,
              Permissions.ReportsView, Permissions.ReportsCreate, Permissions.ReportsEdit, Permissions.ReportsSign, Permissions.ReportPatientsManage,
              Permissions.LabResultsView, Permissions.AnalyticsDashboard]),
         (Billing, "OHIP claims, remittance and invoices.",

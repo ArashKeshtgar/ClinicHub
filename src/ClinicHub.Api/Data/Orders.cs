@@ -8,6 +8,9 @@ public static class TargetSystems
 {
     public const string LabFlow = "LabFlow";
     public const string ClinicReport = "ClinicReport";
+
+    /// <summary>The pharmacy: electronic prescriptions go here (not an order target: see <see cref="Prescription"/>).</summary>
+    public const string PharmaFlow = "PharmaFlow";
 }
 
 public static class ServiceRequestStatus
@@ -30,6 +33,26 @@ public static class OutboxKinds
 
     /// <summary>The order is withdrawn: the same ServiceRequest with status "revoked".</summary>
     public const string Cancel = "ServiceRequestCancel";
+
+    /// <summary>Electronic prescriptions written together: one Bundle of MedicationRequests.</summary>
+    public const string Prescription = "MedicationRequest";
+
+    /// <summary>A prescription is withdrawn: the same MedicationRequest with status "cancelled".</summary>
+    public const string PrescriptionCancel = "MedicationRequestCancel";
+}
+
+public static class PrescriptionStatus
+{
+    /// <summary>Saved, waiting to be delivered to the pharmacy.</summary>
+    public const string Draft = "Draft";
+
+    /// <summary>The pharmacy has it in reception.</summary>
+    public const string Accepted = "Accepted";
+    public const string Cancelled = "Cancelled";
+    public const string Failed = "Failed";
+
+    /// <summary>Asked the pharmacy to cancel; waiting for its answer (it refuses once dispensing has started).</summary>
+    public const string Cancelling = "Cancelling";
 }
 
 /// <summary>An order: a lab test for LabFlow, or an ECG / echo for ClinicReport (FHIR ServiceRequest).</summary>
@@ -71,6 +94,62 @@ public class ServiceRequest
     public List<DiagnosticResult> Results { get; set; } = [];
 }
 
+/// <summary>
+/// An electronic prescription: one drug written at a visit, sent to the pharmacy (PharmaFlow) as a FHIR
+/// MedicationRequest. Drugs written together share a <see cref="GroupNumber"/> and one message, like the tests of an order.
+/// The prescriber signs for it by writing it: a clinician with a provider record and a college registration number.
+/// </summary>
+public class Prescription
+{
+    public int Id { get; set; }
+    public int EncounterId { get; set; }
+    public Encounter Encounter { get; set; } = null!;
+    public int PatientId { get; set; }
+    public Patient Patient { get; set; } = null!;
+    public int PrescriberProviderId { get; set; }
+    public Provider PrescriberProvider { get; set; } = null!;
+
+    /// <summary>The drug as a Drug Identification Number (8 digits), from <c>PrescriptionCatalog</c>.</summary>
+    [MaxLength(8)] public string Din { get; set; } = "";
+
+    /// <summary>What the prescriber saw when choosing, kept as written ("Amoxicillin 500 mg capsule").</summary>
+    [MaxLength(200)] public string Display { get; set; } = "";
+
+    /// <summary>The directions (sig), e.g. "1 capsule three times daily for 7 days".</summary>
+    [MaxLength(200)] public string Directions { get; set; } = "";
+    public int Quantity { get; set; }
+
+    /// <summary>"capsule", "tablet", "inhaler", ... from the catalog.</summary>
+    [MaxLength(20)] public string QuantityUnit { get; set; } = "";
+    public int? DaysSupply { get; set; }
+
+    /// <summary>Refills allowed, 0 to 11.</summary>
+    public int Repeats { get; set; }
+
+    /// <summary>The prescriber does not allow the pharmacist to substitute a generic.</summary>
+    public bool NoSubstitution { get; set; }
+
+    /// <summary>For the pharmacist.</summary>
+    [MaxLength(500)] public string? Note { get; set; }
+
+    /// <summary>The prescriptions written together at one visit sit under one number (FHIR groupIdentifier).</summary>
+    public int GroupNumber { get; set; }
+
+    [MaxLength(20)] public string Status { get; set; } = PrescriptionStatus.Draft;
+    public long? OutboxMessageId { get; set; }
+
+    /// <summary>The pharmacy's id for it once it has accepted it.</summary>
+    [MaxLength(64)] public string? ExternalId { get; set; }
+
+    public DateTime CreatedUtc { get; set; }
+    public DateTime? SentUtc { get; set; }
+    [MaxLength(200)] public string? CancelReason { get; set; }
+    public DateTime? CancelledUtc { get; set; }
+
+    /// <summary>The pharmacy's answer when it could not cancel, e.g. already dispensed.</summary>
+    [MaxLength(500)] public string? StatusNote { get; set; }
+}
+
 /// <summary>A result or report that came back for an order (FHIR DiagnosticReport). A clinician must acknowledge it.</summary>
 public class DiagnosticResult
 {
@@ -97,6 +176,9 @@ public class OutboxMessage
     [MaxLength(60)] public string Kind { get; set; } = "";
     public string PayloadJson { get; set; } = "";
     public int? ServiceRequestId { get; set; }
+
+    /// <summary>A prescription's cancel message names the prescription it withdraws.</summary>
+    public int? PrescriptionId { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime? SentUtc { get; set; }
     public int Attempts { get; set; }

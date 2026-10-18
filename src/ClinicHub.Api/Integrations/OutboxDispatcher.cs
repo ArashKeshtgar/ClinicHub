@@ -46,6 +46,8 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
 
     private async Task<bool> SendAsync(ClinicHubDbContext db, Clinic clinic, OutboxMessage message, ServiceTokens tokens, CancellationToken ct)
     {
+        if (message.Kind is OutboxKinds.Prescription or OutboxKinds.PrescriptionCancel)
+            return await SendPrescriptionAsync(db, clinic, message, tokens, ct);
         var cancel = message.Kind == OutboxKinds.Cancel;
         var orders = cancel
             ? await db.ServiceRequests.Include(s => s.Results).Where(s => s.Id == message.ServiceRequestId).ToListAsync(ct)
@@ -61,7 +63,7 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
             {
                 Content = new StringContent(message.PayloadJson, Encoding.UTF8, "application/fhir+json"),
             };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.Create(IntegrationOptions.Audience(message.Destination), clinic));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", tokens.Create(IntegrationOptions.Audience(message.Destination), clinic, IntegrationOptions.Scope(message.Destination)));
             using var response = await http.CreateClient(HttpClientName).SendAsync(request, ct);
             var body = await response.Content.ReadAsStringAsync(ct);
             if (cancel && (int)response.StatusCode is 400 or 404 or 409 or 422)
@@ -119,6 +121,96 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
                 message.Kind, message.Id, clinic.Slug, message.Destination, message.Attempts, message.LastError);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Electronic prescriptions to the pharmacy, the same way: saved with the message, delivered with retries, and the
+    /// pharmacy may refuse a cancellation (it has begun to dispense), which is an answer and not a failure.
+    /// </summary>
+    private async Task<bool> SendPrescriptionAsync(ClinicHubDbContext db, Clinic clinic, OutboxMessage message, ServiceTokens tokens, CancellationToken ct)
+    {
+        var cancel = message.Kind == OutboxKinds.PrescriptionCancel;
+        var items = cancel
+            ? await db.Prescriptions.Where(p => p.Id == message.PrescriptionId).ToListAsync(ct)
+            : await db.Prescriptions.Where(p => p.OutboxMessageId == message.Id).OrderBy(p => p.Id).ToListAsync(ct);
+        var target = options.CurrentValue.For(message.Destination);
+        var now = clock.GetUtcNow().UtcDateTime;
+        message.Attempts++;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(target.FhirBaseUrl))
+                throw new InvalidOperationException($"{message.Destination} is not connected (Integrations:{message.Destination}:FhirBaseUrl).");
+            using var request = new HttpRequestMessage(HttpMethod.Post, target.FhirBaseUrl.TrimEnd('/'))
+            {
+                Content = new StringContent(message.PayloadJson, Encoding.UTF8, "application/fhir+json"),
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer",
+                tokens.Create(IntegrationOptions.Audience(message.Destination), clinic, IntegrationOptions.Scope(message.Destination)));
+            using var response = await http.CreateClient(HttpClientName).SendAsync(request, ct);
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (cancel && (int)response.StatusCode is 400 or 404 or 409 or 422)
+            {
+                foreach (var p in items)
+                    RefusedPrescription(p, $"{message.Destination} did not cancel: {Problem(body)}");
+                message.SentUtc = now;
+                message.LastError = Problem(body);
+                message.NextAttemptUtc = null;
+                await db.SaveChangesAsync(ct);
+                logger.LogInformation("{Destination} refused to cancel prescription {Id} for {Clinic}", message.Destination, message.PrescriptionId, clinic.Slug);
+                return true;
+            }
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"{(int)response.StatusCode}: {Problem(body)}");
+
+            if (cancel)
+                foreach (var p in items)
+                {
+                    p.Status = PrescriptionStatus.Cancelled;
+                    p.CancelledUtc = now;
+                }
+            else
+            {
+                // One entry per request entry, in order: the prescriptions come after the patient and the prescriber.
+                var locations = (JsonNode.Parse(body)?["entry"]?.AsArray() ?? []).Select(e => (string?)e?["response"]?["location"]).ToList();
+                for (var i = 0; i < items.Count; i++)
+                {
+                    items[i].Status = PrescriptionStatus.Accepted;
+                    items[i].SentUtc = now;
+                    items[i].ExternalId = locations.ElementAtOrDefault(i + 2)?.Split('/').ElementAtOrDefault(1);
+                }
+            }
+            message.SentUtc = now;
+            message.LastError = null;
+            message.NextAttemptUtc = null;
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Delivered {Kind} {Id} for {Clinic} to {Destination}", message.Kind, message.Id, clinic.Slug, message.Destination);
+            return true;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException)
+        {
+            message.LastError = ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message;
+            message.NextAttemptUtc = now.AddSeconds(Math.Min(10 * Math.Pow(2, message.Attempts - 1), 1800));
+            if (message.Attempts >= MaxAttempts)
+                foreach (var p in items)
+                    if (cancel)
+                        RefusedPrescription(p, $"{message.Destination} could not be reached to cancel. Cancel again to retry.");
+                    else
+                        p.Status = PrescriptionStatus.Failed;
+            await db.SaveChangesAsync(ct);
+            logger.LogWarning("Could not deliver {Kind} {Id} for {Clinic} to {Destination} (attempt {Attempt}): {Error}",
+                message.Kind, message.Id, clinic.Slug, message.Destination, message.Attempts, message.LastError);
+            return false;
+        }
+    }
+
+    /// <summary>The cancellation did not happen: the prescription stands.</summary>
+    private static void RefusedPrescription(Prescription prescription, string note)
+    {
+        if (prescription.Status != PrescriptionStatus.Cancelling)
+            return;
+        prescription.Status = PrescriptionStatus.Accepted;
+        prescription.CancelReason = null;
+        prescription.StatusNote = note.Length > 500 ? note[..500] : note;
     }
 
     /// <summary>The cancellation did not happen: the order goes on where it was.</summary>

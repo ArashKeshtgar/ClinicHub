@@ -1086,6 +1086,9 @@ namespace ClinicHub.Api.Data.Migrations
                         .HasMaxLength(-1)
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("PrescriptionId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("SentUtc")
                         .HasColumnType("datetime2(3)");
 
@@ -1097,6 +1100,8 @@ namespace ClinicHub.Api.Data.Migrations
                     b.HasIndex("NextAttemptUtc")
                         .HasDatabaseName("IX_Outbox_Pending")
                         .HasFilter("SentUtc IS NULL");
+
+                    b.HasIndex("PrescriptionId");
 
                     b.HasIndex("ServiceRequestId");
 
@@ -1381,6 +1386,115 @@ namespace ClinicHub.Api.Data.Migrations
                     b.ToTable("Payment", "billing", t =>
                         {
                             t.HasCheckConstraint("CK_Payment_Amount", "Amount > 0");
+                        });
+                });
+
+            modelBuilder.Entity("ClinicHub.Api.Data.Prescription", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("CancelledUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<int?>("DaysSupply")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Din")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
+
+                    b.Property<string>("Directions")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Display")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("EncounterId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ExternalId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("GroupNumber")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("NoSubstitution")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<long?>("OutboxMessageId")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PrescriberProviderId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.Property<string>("QuantityUnit")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int>("Repeats")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("SentUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("StatusNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EncounterId");
+
+                    b.HasIndex("OutboxMessageId");
+
+                    b.HasIndex("PrescriberProviderId");
+
+                    b.HasIndex("PatientId", "CreatedUtc");
+
+                    b.ToTable("Prescription", "orders", t =>
+                        {
+                            t.HasCheckConstraint("CK_Prescription_DaysSupply", "DaysSupply IS NULL OR DaysSupply BETWEEN 1 AND 365");
+
+                            t.HasCheckConstraint("CK_Prescription_Din", "Din NOT LIKE '%[^0-9]%' AND LEN(Din) = 8");
+
+                            t.HasCheckConstraint("CK_Prescription_Quantity", "Quantity > 0");
+
+                            t.HasCheckConstraint("CK_Prescription_Repeats", "Repeats BETWEEN 0 AND 11");
+
+                            t.HasCheckConstraint("CK_Prescription_Status", "Status IN ('Draft','Accepted','Cancelled','Failed','Cancelling')");
                         });
                 });
 
@@ -2296,6 +2410,10 @@ namespace ClinicHub.Api.Data.Migrations
 
             modelBuilder.Entity("ClinicHub.Api.Data.OutboxMessage", b =>
                 {
+                    b.HasOne("ClinicHub.Api.Data.Prescription", null)
+                        .WithMany()
+                        .HasForeignKey("PrescriptionId");
+
                     b.HasOne("ClinicHub.Api.Data.ServiceRequest", null)
                         .WithMany()
                         .HasForeignKey("ServiceRequestId");
@@ -2367,6 +2485,37 @@ namespace ClinicHub.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Invoice");
+                });
+
+            modelBuilder.Entity("ClinicHub.Api.Data.Prescription", b =>
+                {
+                    b.HasOne("ClinicHub.Api.Data.Encounter", "Encounter")
+                        .WithMany()
+                        .HasForeignKey("EncounterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.OutboxMessage", null)
+                        .WithMany()
+                        .HasForeignKey("OutboxMessageId");
+
+                    b.HasOne("ClinicHub.Api.Data.Patient", "Patient")
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.Provider", "PrescriberProvider")
+                        .WithMany()
+                        .HasForeignKey("PrescriberProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Encounter");
+
+                    b.Navigation("Patient");
+
+                    b.Navigation("PrescriberProvider");
                 });
 
             modelBuilder.Entity("ClinicHub.Api.Data.Provider", b =>

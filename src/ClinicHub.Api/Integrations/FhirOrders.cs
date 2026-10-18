@@ -22,6 +22,12 @@ public class IntegrationOptions
     public Target LabFlow { get; set; } = new();
     public Target ClinicReport { get; set; } = new();
 
+    /// <summary>
+    /// The pharmacy: where electronic prescriptions go, e.g. the hub's route http://localhost:5700/route/pharmaflow/fhir
+    /// or PharmaFlow's own /fhir. Empty: prescriptions wait until it is set.
+    /// </summary>
+    public Target PharmaFlow { get; set; } = new();
+
     public class FinanceTarget
     {
         /// <summary>FinancePowerApp's address, e.g. http://localhost:5400. Empty: nothing is sent to the accounting.</summary>
@@ -33,10 +39,23 @@ public class IntegrationOptions
     /// <summary>How often the outbox is looked at. 0 turns the background worker off (tests send on demand).</summary>
     public int PollSeconds { get; set; } = 5;
 
-    public Target For(string system) => system == TargetSystems.LabFlow ? LabFlow : ClinicReport;
+    public Target For(string system) => system switch
+    {
+        TargetSystems.LabFlow => LabFlow,
+        TargetSystems.PharmaFlow => PharmaFlow,
+        _ => ClinicReport,
+    };
 
     /// <summary>The application's client id in ClinicHub, which is also the audience of the tokens sent to it.</summary>
-    public static string Audience(string system) => system == TargetSystems.LabFlow ? "labflow" : "clinicreport";
+    public static string Audience(string system) => system switch
+    {
+        TargetSystems.LabFlow => "labflow",
+        TargetSystems.PharmaFlow => "pharmaflow",
+        _ => "clinicreport",
+    };
+
+    /// <summary>What the token lets the application do: take orders, or take prescriptions.</summary>
+    public static string Scope(string system) => system == TargetSystems.PharmaFlow ? ServiceTokens.PrescriptionsScope : ServiceTokens.OrdersScope;
 }
 
 /// <summary>
@@ -47,6 +66,7 @@ public class IntegrationOptions
 public class ServiceTokens(IOptionsMonitor<OpenIddictServerOptions> server, IOptions<SsoOptions> sso, TimeProvider clock)
 {
     public const string OrdersScope = "orders";
+    public const string PrescriptionsScope = "prescriptions";
 
     public string Create(string audience, Clinic clinic, string scope = OrdersScope)
     {
@@ -76,43 +96,7 @@ public static class FhirOrderBundle
     public static JsonObject Build(Clinic clinic, Patient patient, Provider requester, IReadOnlyList<ServiceRequest> orders, DateTime nowUtc)
     {
         var requisition = $"R{orders.Min(o => o.Id)}";
-        var patientIds = new JsonArray(Identifier(FhirSystems.Clinic(clinic.Slug, "mrn"), patient.Mrn));
-        if (patient.HealthCardNumber is { } hcn)
-        {
-            var card = Identifier(FhirSystems.OntarioHealthCard, hcn);
-            if (patient.HealthCardVersion is { } version)
-                card["extension"] = new JsonArray(new JsonObject
-                {
-                    // ClinicHub's own extension for the card's version code; confirm the provincial profile's before production.
-                    ["url"] = "urn:clinichub:extension:health-card-version", ["valueString"] = version,
-                });
-            patientIds.Add(card);
-        }
-        var practitionerIds = new JsonArray();
-        if (requester.RegistrationNumber is { } reg)
-            practitionerIds.Add(Identifier(FhirSystems.Cpso, reg));
-        if (requester.OhipBillingNumber is { } billing)
-            practitionerIds.Add(Identifier(FhirSystems.OhipBillingNumber, billing));
-
-        var entries = new JsonArray
-        {
-            Entry("urn:uuid:patient", new JsonObject
-            {
-                ["resourceType"] = "Patient", ["identifier"] = patientIds,
-                ["name"] = new JsonArray(new JsonObject { ["family"] = patient.LastName, ["given"] = new JsonArray(patient.FirstName) }),
-                ["gender"] = patient.Sex switch { "M" => "male", "F" => "female", "X" => "other", _ => "unknown" },
-                ["birthDate"] = patient.DateOfBirth.ToString("yyyy-MM-dd"),
-            }),
-            Entry("urn:uuid:requester", new JsonObject
-            {
-                ["resourceType"] = "Practitioner", ["identifier"] = practitionerIds,
-                ["name"] = new JsonArray(new JsonObject
-                {
-                    ["family"] = requester.LastName, ["given"] = new JsonArray(requester.FirstName),
-                    ["prefix"] = requester.Title is { } t ? new JsonArray(t) : null,
-                }),
-            }),
-        };
+        var entries = new JsonArray { PatientEntry(clinic, patient), RequesterEntry(requester) };
         foreach (var o in orders)
         {
             var item = OrderCatalog.Find(o.TargetSystem, o.Code)!;
@@ -174,9 +158,52 @@ public static class FhirOrderBundle
         };
     }
 
-    private static JsonObject Identifier(string system, string value) => new() { ["system"] = system, ["value"] = value };
+    internal static JsonObject Identifier(string system, string value) => new() { ["system"] = system, ["value"] = value };
 
-    private static JsonObject Entry(string fullUrl, JsonObject resource) => new()
+    /// <summary>The Patient entry of an order or prescription Bundle: MRN, health card, name, sex, birth date.</summary>
+    internal static JsonObject PatientEntry(Clinic clinic, Patient patient)
+    {
+        var patientIds = new JsonArray(Identifier(FhirSystems.Clinic(clinic.Slug, "mrn"), patient.Mrn));
+        if (patient.HealthCardNumber is { } hcn)
+        {
+            var card = Identifier(FhirSystems.OntarioHealthCard, hcn);
+            if (patient.HealthCardVersion is { } version)
+                card["extension"] = new JsonArray(new JsonObject
+                {
+                    // ClinicHub's own extension for the card's version code; confirm the provincial profile's before production.
+                    ["url"] = "urn:clinichub:extension:health-card-version", ["valueString"] = version,
+                });
+            patientIds.Add(card);
+        }
+        return Entry("urn:uuid:patient", new JsonObject
+        {
+            ["resourceType"] = "Patient", ["identifier"] = patientIds,
+            ["name"] = new JsonArray(new JsonObject { ["family"] = patient.LastName, ["given"] = new JsonArray(patient.FirstName) }),
+            ["gender"] = patient.Sex switch { "M" => "male", "F" => "female", "X" => "other", _ => "unknown" },
+            ["birthDate"] = patient.DateOfBirth.ToString("yyyy-MM-dd"),
+        });
+    }
+
+    /// <summary>The Practitioner entry: college registration number, OHIP billing number, name.</summary>
+    internal static JsonObject RequesterEntry(Provider requester)
+    {
+        var practitionerIds = new JsonArray();
+        if (requester.RegistrationNumber is { } reg)
+            practitionerIds.Add(Identifier(FhirSystems.Cpso, reg));
+        if (requester.OhipBillingNumber is { } billing)
+            practitionerIds.Add(Identifier(FhirSystems.OhipBillingNumber, billing));
+        return Entry("urn:uuid:requester", new JsonObject
+        {
+            ["resourceType"] = "Practitioner", ["identifier"] = practitionerIds,
+            ["name"] = new JsonArray(new JsonObject
+            {
+                ["family"] = requester.LastName, ["given"] = new JsonArray(requester.FirstName),
+                ["prefix"] = requester.Title is { } t ? new JsonArray(t) : null,
+            }),
+        });
+    }
+
+    internal static JsonObject Entry(string fullUrl, JsonObject resource) => new()
     {
         ["fullUrl"] = fullUrl, ["resource"] = resource,
         ["request"] = new JsonObject { ["method"] = "POST", ["url"] = (string)resource["resourceType"]! },

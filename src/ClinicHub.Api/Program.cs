@@ -95,6 +95,7 @@ app.MapBillingEndpoints();
 app.MapUserEndpoints();
 app.MapSsoEndpoints();
 app.MapOrderEndpoints();
+app.MapPrescriptionEndpoints();
 app.MapResultEndpoints();
 app.MapFallbackToFile("index.html").AllowAnonymous();
 

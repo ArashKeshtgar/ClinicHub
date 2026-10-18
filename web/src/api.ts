@@ -289,6 +289,27 @@ export const orders = {
   cancel: (id: number, reason: string) => request<Order[]>('POST', `/api/orders/${id}/cancel`, { reason }),
 }
 
+// --- electronic prescriptions to the pharmacy (FHIR MedicationRequest) ---
+
+export type Drug = { din: string; display: string; unit: string; group: string; connected: boolean }
+export type PrescriptionStatus = 'Draft' | 'Accepted' | 'Cancelled' | 'Failed' | 'Cancelling'
+export type Prescription = {
+  id: number; din: string; display: string; directions: string; quantity: number; unit: string; daysSupply?: number; repeats: number
+  noSubstitution: boolean; note?: string; status: PrescriptionStatus; createdUtc: string; sentUtc?: string; externalId?: string
+  prescriber: string; attempts: number; lastError?: string; cancelReason?: string; statusNote?: string
+}
+export type PrescriptionLine = {
+  din: string; directions: string; quantity: number; daysSupply?: number; repeats: number; noSubstitution: boolean; note?: string
+}
+
+export const prescriptions = {
+  catalog: () => request<Drug[]>('GET', '/api/prescriptions/catalog'),
+  forEncounter: (encounterId: number) => request<Prescription[]>('GET', `/api/encounters/${encounterId}/prescriptions`),
+  write: (encounterId: number, items: PrescriptionLine[]) => request<Prescription[]>('POST', `/api/encounters/${encounterId}/prescriptions`, { items }),
+  resend: (id: number) => request<void>('POST', `/api/prescriptions/${id}/resend`),
+  cancel: (id: number, reason: string) => request<Prescription[]>('POST', `/api/prescriptions/${id}/cancel`, { reason }),
+}
+
 // --- results back (FHIR DiagnosticReport) ---
 
 export type ResultRow = {

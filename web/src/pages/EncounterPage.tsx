@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, can, consent, encounters, firstError, localDateTime, localTime, money, orders, withheld, type Withheld, type CatalogItem, type Codes, type Coding, type Encounter, type Order, type Soap, type Vitals, type VitalsInput } from '../api'
+import { ApiError, can, consent, encounters, firstError, localDateTime, localTime, money, orders, prescriptions, withheld, type Withheld, type CatalogItem, type Drug, type Prescription, type PrescriptionLine, type Codes, type Coding, type Encounter, type Order, type Soap, type Vitals, type VitalsInput } from '../api'
 import { useSession } from '../App'
 
 const PROGRAM: Record<string, string> = { HCP: 'OHIP', RMB: 'Reciprocal (other province)', WCB: 'WSIB', Uninsured: 'Uninsured · patient pays' }
@@ -111,6 +111,8 @@ export default function EncounterPage() {
           {codes && <CodingCard enc={enc} codes={codes} editable={code} busy={busy} onSave={c => run(() => encounters.saveCoding(id, c))} />}
 
           <OrdersCard encounterId={enc.id} canOrder={can(me, 'orders.manage') && !!me.providerId && enc.status !== 'Voided'} />
+
+          <PrescriptionsCard encounterId={enc.id} canPrescribe={can(me, 'prescriptions.write') && !!me.providerId && enc.status !== 'Voided'} />
 
           {open && (
             <section className="card">
@@ -543,6 +545,168 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
             <div className="dialog-actions">
               <button onClick={() => { setPicking(false); setChosen([]) }}>Cancel</button>
               <button className="primary" disabled={chosen.length === 0} onClick={send}>Send {chosen.length || ''} order{chosen.length === 1 ? '' : 's'}</button>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
+const RX_STATUS: Record<string, [string, string]> = {
+  Draft: ['Sending…', 'none'], Accepted: ['At the pharmacy', 'ohip'], Cancelled: ['Cancelled', ''], Failed: ['Not delivered', 'none'], Cancelling: ['Cancelling…', 'none'],
+}
+
+type RxForm = { din: string; directions: string; quantity: string; daysSupply: string; repeats: string; noSubstitution: boolean; note: string }
+const blankRx = (): RxForm => ({ din: '', directions: '', quantity: '', daysSupply: '', repeats: '0', noSubstitution: false, note: '' })
+
+/**
+ * Electronic prescriptions from this visit, to the pharmacy (PharmaFlow) as FHIR MedicationRequests. Writing one signs
+ * for it: the prescriber is the signed-in clinician. The pharmacy checks allergies and interactions when it receives
+ * it; ClinicHub keeps no allergy list yet. A prescription already at the pharmacy can be cancelled, and the pharmacy
+ * refuses once it has begun to dispense.
+ */
+function PrescriptionsCard({ encounterId, canPrescribe }: { encounterId: number; canPrescribe: boolean }) {
+  const [list, setList] = useState<Prescription[] | null>(null)
+  const [catalog, setCatalog] = useState<Drug[]>([])
+  const [writing, setWriting] = useState(false)
+  const [rows, setRows] = useState<RxForm[]>([blankRx()])
+  const [error, setError] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState<{ id: number; reason: string } | null>(null)
+  const [cancelError, setCancelError] = useState<string | null>(null)
+
+  const load = useCallback(() => prescriptions.forEncounter(encounterId).then(setList).catch(() => setList([])), [encounterId])
+  useEffect(() => { load(); prescriptions.catalog().then(setCatalog).catch(() => setCatalog([])) }, [load])
+  // While something is on its way, look again shortly.
+  useEffect(() => {
+    if (!list?.some(p => p.status === 'Draft' || p.status === 'Cancelling')) return
+    const t = setTimeout(load, 4000)
+    return () => clearTimeout(t)
+  }, [list, load])
+
+  const unit = (din: string) => catalog.find(d => d.din === din)?.unit ?? 'unit'
+  const groups = [...new Set(catalog.map(d => d.group))]
+  const connected = catalog.length === 0 || catalog[0]!.connected
+  const change = (i: number, patch: Partial<RxForm>) => setRows(rows.map((r, k) => (k === i ? { ...r, ...patch } : r)))
+  const ready = rows.every(r => r.din && r.directions.trim().length >= 3 && Number(r.quantity) >= 1)
+
+  const send = async () => {
+    setError(null)
+    const items: PrescriptionLine[] = rows.map(r => ({
+      din: r.din, directions: r.directions.trim(), quantity: Number(r.quantity), daysSupply: r.daysSupply === '' ? undefined : Number(r.daysSupply),
+      repeats: Number(r.repeats) || 0, noSubstitution: r.noSubstitution, note: r.note.trim() || undefined,
+    }))
+    try {
+      setList(await prescriptions.write(encounterId, items))
+      setRows([blankRx()]); setWriting(false)
+    } catch (e) {
+      setError(firstError(e, 'Not prescribed.'))
+    }
+  }
+
+  const cancel = async () => {
+    if (!cancelling) return
+    setCancelError(null)
+    try {
+      setList(await prescriptions.cancel(cancelling.id, cancelling.reason))
+      setCancelling(null)
+    } catch (e) {
+      setCancelError(firstError(e, 'Not cancelled.'))
+    }
+  }
+
+  return (
+    <section className="card">
+      <div className="panel-head">
+        <h2>Prescriptions</h2>
+        {canPrescribe && !writing && <button className="small" onClick={() => setWriting(true)}>Prescribe…</button>}
+      </div>
+      <div className="pad" style={{ display: 'grid', gap: '.6rem' }}>
+        {list?.length === 0 && !writing && <p className="muted small" style={{ margin: 0 }}>Nothing prescribed at this visit.</p>}
+        {list && list.length > 0 && (
+          <ul className="code-list">
+            {list.map(p => {
+              const [label, cls] = RX_STATUS[p.status] ?? [p.status, '']
+              return (
+                <li key={p.id} style={{ flexWrap: 'wrap' }}>
+                  <span className="desc">{p.display}
+                    <span className="muted small"> · {p.quantity} {p.unit}{p.daysSupply ? ` · ${p.daysSupply} days` : ''} · {p.repeats} refill{p.repeats === 1 ? '' : 's'}{p.noSubstitution ? ' · no substitution' : ''}</span>
+                  </span>
+                  <span className={`badge ${cls}`} title={p.lastError ?? (p.externalId ? `Pharmacy prescription ${p.externalId}` : undefined)}>{label}</span>
+                  <div className="small" style={{ flexBasis: '100%' }}>{p.directions}</div>
+                  {p.note && <div className="muted small" style={{ flexBasis: '100%' }}>To the pharmacist: {p.note}</div>}
+                  {canPrescribe && p.status !== 'Cancelled' && p.status !== 'Cancelling' && cancelling?.id !== p.id && (
+                    <button className="quiet small" onClick={() => { setCancelling({ id: p.id, reason: '' }); setCancelError(null) }}>Cancel prescription</button>
+                  )}
+                  {p.status === 'Cancelled' && p.cancelReason && <div className="muted small" style={{ flexBasis: '100%' }}>Reason: {p.cancelReason}</div>}
+                  {p.statusNote && p.status !== 'Cancelled' && <div className="muted small" style={{ flexBasis: '100%' }}>{p.statusNote}</div>}
+                  {cancelling?.id === p.id && (
+                    <div style={{ flexBasis: '100%', display: 'grid', gap: '.4rem' }}>
+                      <label className="small">Why cancel? (sent to the pharmacy)
+                        <input value={cancelling.reason} maxLength={200} autoFocus placeholder="e.g. Allergic reaction reported"
+                          onChange={e => setCancelling({ id: p.id, reason: e.target.value })} />
+                      </label>
+                      {cancelError && <p className="error" style={{ margin: 0 }}>{cancelError}</p>}
+                      <div className="dialog-actions">
+                        <button onClick={() => setCancelling(null)}>Keep prescription</button>
+                        <button className="danger" onClick={cancel}>Cancel prescription</button>
+                      </div>
+                    </div>
+                  )}
+                  {p.lastError && p.status !== 'Accepted' && p.status !== 'Cancelled' && (
+                    <div className="muted small" style={{ flexBasis: '100%' }}>
+                      Attempt {p.attempts}: {p.lastError}
+                      {canPrescribe && <button className="quiet small" onClick={async () => { await prescriptions.resend(p.id); load() }}>Try again now</button>}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        {writing && (
+          <>
+            {!connected && <p className="muted small" style={{ margin: 0 }}>The pharmacy is not connected yet: prescriptions are kept and sent when it is.</p>}
+            {rows.map((r, i) => (
+              <fieldset key={i} className="checks" style={{ display: 'grid', gap: '.4rem' }}>
+                <legend>Drug {rows.length > 1 ? i + 1 : ''}</legend>
+                <label>Drug
+                  <select value={r.din} onChange={e => change(i, { din: e.target.value })}>
+                    <option value="">Choose…</option>
+                    {groups.map(g => (
+                      <optgroup key={g} label={g}>
+                        {catalog.filter(d => d.group === g).map(d => <option key={d.din} value={d.din} disabled={rows.some((x, k) => k !== i && x.din === d.din)}>{d.display}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+                <label>Directions
+                  <input value={r.directions} maxLength={200} placeholder="e.g. 1 capsule three times daily for 7 days" onChange={e => change(i, { directions: e.target.value })} />
+                </label>
+                <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                  <label>Quantity ({unit(r.din)}s)
+                    <input type="number" min={1} max={9999} value={r.quantity} onChange={e => change(i, { quantity: e.target.value })} style={{ width: '6rem' }} />
+                  </label>
+                  <label>Days of supply
+                    <input type="number" min={1} max={365} value={r.daysSupply} onChange={e => change(i, { daysSupply: e.target.value })} style={{ width: '6rem' }} />
+                  </label>
+                  <label>Refills
+                    <input type="number" min={0} max={11} value={r.repeats} onChange={e => change(i, { repeats: e.target.value })} style={{ width: '5rem' }} />
+                  </label>
+                </div>
+                <label className="check"><input type="checkbox" checked={r.noSubstitution} onChange={e => change(i, { noSubstitution: e.target.checked })} /> No substitution (the pharmacist may not switch to a generic)</label>
+                <label>To the pharmacist
+                  <input value={r.note} maxLength={500} placeholder="optional" onChange={e => change(i, { note: e.target.value })} />
+                </label>
+                {rows.length > 1 && <div><button className="quiet small" onClick={() => setRows(rows.filter((_, k) => k !== i))}>Remove this drug</button></div>}
+              </fieldset>
+            ))}
+            {rows.length < 10 && <div><button className="small" onClick={() => setRows([...rows, blankRx()])}>Add another drug</button></div>}
+            <p className="muted small" style={{ margin: 0 }}>You sign for it by sending it. The pharmacy checks allergies and interactions; ClinicHub does not keep an allergy list yet. Controlled drugs (narcotics, benzodiazepines, stimulants) are not prescribed here.</p>
+            {error && <p className="error">{error}</p>}
+            <div className="dialog-actions">
+              <button onClick={() => { setWriting(false); setRows([blankRx()]); setError(null) }}>Cancel</button>
+              <button className="primary" disabled={!ready} onClick={send}>Send {rows.length} prescription{rows.length === 1 ? '' : 's'}</button>
             </div>
           </>
         )}

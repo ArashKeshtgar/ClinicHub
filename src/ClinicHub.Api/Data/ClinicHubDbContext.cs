@@ -40,6 +40,7 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
 
     public DbSet<ServiceRequest> ServiceRequests => Set<ServiceRequest>();
     public DbSet<DiagnosticResult> DiagnosticResults => Set<DiagnosticResult>();
+    public DbSet<Prescription> Prescriptions => Set<Prescription>();
     public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
     public DbSet<InboundMessage> Inbox => Set<InboundMessage>();
 
@@ -280,6 +281,22 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
             e.HasIndex(x => new { x.TargetSystem, x.ExternalId }).HasFilter("ExternalId IS NOT NULL");
             e.HasOne<OutboxMessage>().WithMany().HasForeignKey(x => x.OutboxMessageId);
         });
+        b.Entity<Prescription>(e =>
+        {
+            e.ToTable("Prescription", "orders", t =>
+            {
+                t.HasCheckConstraint("CK_Prescription_Status", In("Status", [PrescriptionStatus.Draft, PrescriptionStatus.Accepted, PrescriptionStatus.Cancelled,
+                    PrescriptionStatus.Failed, PrescriptionStatus.Cancelling]));
+                t.HasCheckConstraint("CK_Prescription_Din", "Din NOT LIKE '%[^0-9]%' AND LEN(Din) = 8");
+                t.HasCheckConstraint("CK_Prescription_Quantity", "Quantity > 0");
+                t.HasCheckConstraint("CK_Prescription_Repeats", "Repeats BETWEEN 0 AND 11");
+                t.HasCheckConstraint("CK_Prescription_DaysSupply", "DaysSupply IS NULL OR DaysSupply BETWEEN 1 AND 365");
+            });
+            e.HasOne(x => x.PrescriberProvider).WithMany().HasForeignKey(x => x.PrescriberProviderId);
+            e.HasIndex(x => new { x.PatientId, x.CreatedUtc });
+            e.HasIndex(x => x.EncounterId);
+            e.HasOne<OutboxMessage>().WithMany().HasForeignKey(x => x.OutboxMessageId);
+        });
         b.Entity<DiagnosticResult>(e =>
         {
             e.ToTable("DiagnosticResult", "orders");
@@ -295,6 +312,7 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
             e.Property(x => x.LastError).HasMaxLength(1000);
             e.HasIndex(x => x.NextAttemptUtc).HasFilter("SentUtc IS NULL").HasDatabaseName("IX_Outbox_Pending");
             e.HasOne<ServiceRequest>().WithMany().HasForeignKey(x => x.ServiceRequestId);
+            e.HasOne<Prescription>().WithMany().HasForeignKey(x => x.PrescriptionId);
         });
         b.Entity<InboundMessage>(e =>
         {
