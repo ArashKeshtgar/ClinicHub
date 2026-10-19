@@ -12,6 +12,16 @@ public class SsoClient
     public string ClientId { get; set; } = "";
     public string DisplayName { get; set; } = "";
 
+    /// <summary>
+    /// The application whose permissions this client carries, when that is not its own client id. A browser client
+    /// cannot hold a secret, so an application with a web page and a server-to-server client (the hub: "integrationhub"
+    /// for the HL7 results, "integrationhub-admin" for its admin web) registers two clients that share one set of
+    /// permissions. Empty: the client id.
+    /// </summary>
+    public string? App { get; set; }
+
+    public string PermissionApp => string.IsNullOrWhiteSpace(App) ? ClientId : App;
+
     /// <summary>Server-side applications are confidential and authenticate with this secret.</summary>
     public string? ClientSecret { get; set; }
     public string[] RedirectUris { get; set; } = [];
@@ -36,6 +46,9 @@ public class SsoOptions
     public string? Issuer { get; set; }
 
     public List<SsoClient> Clients { get; set; } = [];
+
+    /// <summary>The permission namespace of a client id (its own, unless the client names an application).</summary>
+    public string AppOf(string clientId) => Clients.FirstOrDefault(c => c.ClientId == clientId)?.PermissionApp ?? clientId;
 
     /// <summary>A PFX used to sign tokens in production. Development uses ASP.NET's development certificate store.</summary>
     public string? SigningCertificatePath { get; set; }

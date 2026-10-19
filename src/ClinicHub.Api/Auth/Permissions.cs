@@ -34,6 +34,7 @@ public static class Permissions
         public const string LabFlow = "labflow";
         public const string Analytics = "analytics";
         public const string PharmaFlow = "pharmaflow";
+        public const string IntegrationHub = "integrationhub";
     }
 
     // ClinicReport: structured diagnostic reports (echo, ECG).
@@ -62,6 +63,10 @@ public static class Permissions
     public const string AnalyticsDashboard = "analytics:dashboard.view";
     public const string AnalyticsGroup = "analytics:group.view";
     public const string AnalyticsModels = "analytics:models.view";
+
+    // IntegrationHub: the admin web of the message hub (metadata only, never message content).
+    public const string HubMessagesView = "integrationhub:messages.view";
+    public const string HubMessagesReplay = "integrationhub:messages.replay";
 
     public record Info(string Key, string Group, string Label, string? App = null);
 
@@ -108,6 +113,9 @@ public static class Permissions
         new(AnalyticsDashboard, "Analytics", "The clinic's dashboards (money and operations)", Apps.Analytics),
         new(AnalyticsGroup, "Analytics", "Every business of the group side by side", Apps.Analytics),
         new(AnalyticsModels, "Analytics", "Forecasts and anomaly models", Apps.Analytics),
+
+        new(HubMessagesView, "IntegrationHub", "See the message log, route health and alerts", Apps.IntegrationHub),
+        new(HubMessagesReplay, "IntegrationHub", "Replay an HL7 message the hub gave up on", Apps.IntegrationHub),
     ];
 
     public static readonly string[] All = Catalog.Select(p => p.Key).ToArray();

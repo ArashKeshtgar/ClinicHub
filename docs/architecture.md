@@ -253,11 +253,24 @@ together share a number and one outgoing message, the way the tests of an order 
   goes back to *At the pharmacy* with the answer as its note, and is not retried.
 - **Not checked here:** allergies, interactions and duplicate therapy. ClinicHub keeps no allergy list; the pharmacy
   checks when it receives the prescription (PharmaFlow's reception does).
-- **Not built, said plainly.** PharmaFlow has no intake for these yet, so nothing has been seen to arrive in a real
-  pharmacy (tested against a fake one, and through IntegrationHub in a real run); no refill or renewal flow, no
+- **Seen end to end** (19 October 2026): a prescription written at a visit went through the outbox and IntegrationHub to
+  PharmaFlow's `/fhir` intake and showed *At the pharmacy*; a cancel before filling was accepted; the hub log held no
+  drug, patient or health card number. The `409` after filling was seen against a stand-in pharmacy and is tested in
+  PharmaFlow, not yet run live against PharmaFlow.
+- **Not built, said plainly.** No refill or renewal flow, no
   dispensed or picked-up status coming back, no printing, no confidentiality label on a prescription of a patient with
   a directive (IntegrationHub's contract flow 7), no merge message (flow 6), no allergy list, no controlled drugs,
   and a demo catalog.
+
+### IntegrationHub's clients
+
+IntegrationHub (the message hub) signs in through ClinicHub with two clients that share one set of permissions:
+`integrationhub-admin` is the public client of its admin web (code flow with PKCE, `App: integrationhub` in
+`Sso:Clients`, so its token carries the `integrationhub` permissions without the prefix) and `integrationhub` is the
+confidential client the hub uses for results that arrive over HL7 (scope `results`). The permissions are
+`integrationhub:messages.view` and `integrationhub:messages.replay`; the Administrator role has both, no other role does.
+**Not built:** an order target for an external lab. ClinicHub accepts results only for orders it sent to LabFlow or
+ClinicReport, so a result the hub brings in over HL7 is refused (403) until one exists.
 
 ## Master patient index
 
@@ -343,4 +356,3 @@ recognises a document sent twice.
   the scope `finance`; ClinicHub gives such tokens the audience `finance`.
 - Set `Integrations:Finance:BaseUrl` to turn it on (development: `http://localhost:5400`; FinancePowerApp started
   with `--launch-profile connected`).
-

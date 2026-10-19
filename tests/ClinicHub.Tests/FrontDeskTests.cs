@@ -41,6 +41,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Sso:Clients:2:DisplayName", "Analytics");
         builder.UseSetting("Sso:Clients:2:RedirectUris:0", SsoTests.AnalyticsRedirectUri);
         builder.UseSetting("Sso:Clients:2:CorsOrigins:0", SsoTests.AnalyticsOrigin);
+        builder.UseSetting("Sso:Clients:3:ClientId", "integrationhub-admin");
+        builder.UseSetting("Sso:Clients:3:App", "integrationhub");
+        builder.UseSetting("Sso:Clients:3:DisplayName", "IntegrationHub");
+        builder.UseSetting("Sso:Clients:3:RedirectUris:0", SsoTests.HubRedirectUri);
+        builder.UseSetting("Sso:Clients:3:CorsOrigins:0", SsoTests.HubOrigin);
+        builder.UseSetting("Sso:Clients:3:LaunchUrl", SsoTests.HubOrigin + "/");
+        builder.UseSetting("Sso:Clients:4:ClientId", "integrationhub");
+        builder.UseSetting("Sso:Clients:4:DisplayName", "IntegrationHub (HL7 results)");
+        builder.UseSetting("Sso:Clients:4:ClientSecret", SsoTests.HubSecret);
         builder.UseSetting("Sso:Issuer", "http://localhost/");
         // Orders: no background worker (tests dispatch on demand), and stand-in applications.
         builder.UseSetting("Integrations:PollSeconds", "0");

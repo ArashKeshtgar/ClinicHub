@@ -17,6 +17,9 @@ public class SsoTests(ApiFactory factory) : IClassFixture<ApiFactory>
     public const string RedirectUri = "https://report.test/signin-oidc";
     public const string AnalyticsOrigin = "https://analytics.test";
     public const string AnalyticsRedirectUri = AnalyticsOrigin + "/signin-oidc";
+    public const string HubOrigin = "https://hub.test";
+    public const string HubRedirectUri = HubOrigin + "/signin-oidc";
+    public const string HubSecret = "test-integrationhub-secret";
 
     private record Pkce(string Verifier, string Challenge);
 
@@ -203,6 +206,67 @@ public class SsoTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Null(await AllowedFor("https://elsewhere.test", "/.well-known/openid-configuration"));
         // ClinicHub's own API is not opened to other origins.
         Assert.Null(await AllowedFor(AnalyticsOrigin, "/api/settings"));
+    }
+
+    /// <summary>The hub's admin web: a public client of its own that carries the hub's permissions ("integrationhub").</summary>
+    private async Task<HttpResponseMessage> SignInToHubAdmin(HttpClient person)
+    {
+        var pkce = NewPkce();
+        var authorize = await person.GetAsync(
+            $"/connect/authorize?client_id=integrationhub-admin&response_type=code&scope=openid%20profile" +
+            $"&redirect_uri={Uri.EscapeDataString(HubRedirectUri)}&state=s1&code_challenge={pkce.Challenge}&code_challenge_method=S256");
+        Assert.Equal(HttpStatusCode.Redirect, authorize.StatusCode);
+        if (authorize.Headers.Location!.ToString().Contains("error="))
+            return authorize;
+        var code = Query(authorize.Headers.Location!)["code"];
+
+        var page = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/connect/token")
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = HubRedirectUri,
+                ["client_id"] = "integrationhub-admin", ["code_verifier"] = pkce.Verifier,
+            }),
+        };
+        request.Headers.Add("Origin", HubOrigin);
+        return await page.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task The_hub_admin_web_gets_the_hub_permissions_without_the_prefix_and_only_for_those_who_hold_them()
+    {
+        var admin = await factory.SignInAsync("admin", "harbourview", followRedirects: false);
+        var response = await SignInToHubAdmin(admin);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(HubOrigin, response.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        var access = Payload((string)(await Json(response))["access_token"]!);
+        Assert.Equal(["messages.replay", "messages.view"], access["permission"]!.AsArray().Select(p => (string)p!).Order());
+
+        var dr = await factory.SignInAsync("dr.patel", "harbourview", followRedirects: false);
+        var refused = await SignInToHubAdmin(dr);
+        Assert.Equal(HttpStatusCode.Redirect, refused.StatusCode);
+        Assert.Equal("access_denied", Query(refused.Headers.Location!)["error"]);
+    }
+
+    [Fact]
+    public async Task The_hub_results_client_has_its_own_secret_and_is_not_listed_as_an_app_to_open()
+    {
+        var token = await factory.CreateClient().PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials", ["client_id"] = "integrationhub", ["client_secret"] = HubSecret, ["scope"] = "results",
+        }));
+        Assert.Equal(HttpStatusCode.OK, token.StatusCode);
+        var wrong = await factory.CreateClient().PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials", ["client_id"] = "integrationhub", ["client_secret"] = "nope", ["scope"] = "results",
+        }));
+        Assert.False(wrong.IsSuccessStatusCode);
+
+        var admin = await factory.SignInAsync("admin");
+        var apps = (await Json(await admin.GetAsync("/api/apps"))).AsArray().Select(a => (string)a!["clientId"]!).ToList();
+        Assert.Contains("integrationhub-admin", apps);
+        Assert.DoesNotContain("integrationhub", apps);
     }
 
     [Fact]

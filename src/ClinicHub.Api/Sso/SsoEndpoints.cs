@@ -37,7 +37,8 @@ public static class SsoEndpoints
         app.MapGet("/api/apps", (ClaimsPrincipal user, IOptions<SsoOptions> sso) =>
         {
             var granted = user.FindAll(AppClaims.Permission).Select(c => c.Value).ToList();
-            return sso.Value.Clients.Where(c => Permissions.ForApp(granted, c.ClientId).Length > 0)
+            // Clients with no page to open (a server-to-server client such as the hub's results client) are not listed.
+            return sso.Value.Clients.Where(c => c.LaunchUrl is not null && Permissions.ForApp(granted, c.PermissionApp).Length > 0)
                 .Select(c => new AppLink(c.ClientId, c.DisplayName, c.LaunchUrl));
         }).WithTags("Auth");
     }
@@ -72,7 +73,7 @@ public static class SsoEndpoints
         if (access.Pending is not null || clinicId is null)
             return request.HasPromptValue(PromptValues.None) ? Refuse(Errors.InteractionRequired, "Finish signing in to ClinicHub first.") : ToClinicHub();
 
-        var appPermissions = Permissions.ForApp(access.Permissions, request.ClientId!);
+        var appPermissions = Permissions.ForApp(access.Permissions, http.RequestServices.GetRequiredService<IOptions<SsoOptions>>().Value.AppOf(request.ClientId!));
         var clinic = account.Roles.Select(r => r.Role.Clinic).First(c => c.Id == clinicId);
         if (appPermissions.Length == 0)
         {
@@ -117,7 +118,7 @@ public static class SsoEndpoints
             return Refuse(Errors.InvalidGrant, "The ClinicHub session has ended. Sign in again.");
 
         var access = Access.For(account, clinicId);
-        var appPermissions = Permissions.ForApp(access.Permissions, request.ClientId!);
+        var appPermissions = Permissions.ForApp(access.Permissions, http.RequestServices.GetRequiredService<IOptions<SsoOptions>>().Value.AppOf(request.ClientId!));
         var clinic = account.Roles.Select(r => r.Role.Clinic).FirstOrDefault(c => c.Id == clinicId);
         if (clinic is null || appPermissions.Length == 0)
             return Refuse(Errors.InvalidGrant, "Access to this application at this clinic has been removed.");

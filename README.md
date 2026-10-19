@@ -73,7 +73,7 @@ patient data leaves the offline copy.
 - [x] Electronic prescriptions: a physician or nurse practitioner prescribes from a demo drug catalog (no controlled
       drugs) at a visit; each goes to the pharmacy (PharmaFlow) as a FHIR MedicationRequest, through the outbox and
       IntegrationHub, and can be cancelled (the pharmacy refuses once it has begun to dispense), see
-      [docs/architecture.md](docs/architecture.md#electronic-prescriptions). **PharmaFlow does not receive them yet.**
+      [docs/architecture.md](docs/architecture.md#electronic-prescriptions). Seen end to end with PharmaFlow's intake.
 - [ ] Docker image and public demo
 - [x] Clinic operations dashboard: the **Operations** page of [Analytics](https://github.com/ArashKeshtgar/Analytics)
       (orders, turnaround, cancellations), built from IntegrationHub's de-identified events
