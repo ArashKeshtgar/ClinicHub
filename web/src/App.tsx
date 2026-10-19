@@ -136,6 +136,7 @@ const DEMO: Record<string, [string, string]> = {
   billing: ['Billing clerk', 'Harbourview: OHIP claims, remittance, invoices'],
   privacy: ['Privacy officer', 'Harbourview: the PHIPA access log and sign-in log'],
   admin: ['Administrator', 'Both clinics, people and roles, and opening new clinics'],
+  pharmacist: ['Pharmacist', 'Harbourview: the pharmacy (PharmaFlow): reception, dispensing, stock'],
 }
 
 /** Only ClinicHub's own sign-in endpoint: anything else in returnUrl would make this page an open redirect. */

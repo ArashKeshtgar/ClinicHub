@@ -33,6 +33,7 @@ public static class Permissions
         public const string ClinicReport = "clinicreport";
         public const string LabFlow = "labflow";
         public const string Analytics = "analytics";
+        public const string PharmaFlow = "pharmaflow";
     }
 
     // ClinicReport: structured diagnostic reports (echo, ECG).
@@ -50,6 +51,12 @@ public static class Permissions
     public const string LabResultsView = "labflow:results.view";
     public const string LabResultsEnter = "labflow:results.enter";
     public const string LabAdmin = "labflow:admin";
+
+    // PharmaFlow: the pharmacy.
+    public const string PharmaReception = "pharmaflow:reception";
+    public const string PharmaDispense = "pharmaflow:dispense";
+    public const string PharmaStock = "pharmaflow:stock";
+    public const string PharmaAdmin = "pharmaflow:admin";
 
     // Analytics: the group's dashboards (de-identified, no patient data).
     public const string AnalyticsDashboard = "analytics:dashboard.view";
@@ -93,6 +100,11 @@ public static class Permissions
         new(LabResultsEnter, "LabFlow", "Enter, correct and release lab results", Apps.LabFlow),
         new(LabAdmin, "LabFlow", "Lab administration", Apps.LabFlow),
 
+        new(PharmaReception, "PharmaFlow", "Receive and review prescriptions; patients, allergies and prescribers", Apps.PharmaFlow),
+        new(PharmaDispense, "PharmaFlow", "Fill, verify and dispense", Apps.PharmaFlow),
+        new(PharmaStock, "PharmaFlow", "Purchasing and stock", Apps.PharmaFlow),
+        new(PharmaAdmin, "PharmaFlow", "Pharmacy administration: drug catalog, plans, base definitions", Apps.PharmaFlow),
+
         new(AnalyticsDashboard, "Analytics", "The clinic's dashboards (money and operations)", Apps.Analytics),
         new(AnalyticsGroup, "Analytics", "Every business of the group side by side", Apps.Analytics),
         new(AnalyticsModels, "Analytics", "Forecasts and anomaly models", Apps.Analytics),
@@ -120,6 +132,7 @@ public static class SystemRoles
     public const string PrivacyOfficer = "Privacy officer";
     public const string ReportTypist = "Report typist";
     public const string LabTechnologist = "Lab technologist";
+    public const string Pharmacist = "Pharmacist";
 
     /// <summary>
     /// The roles every clinic starts with. When a new version adds a permission, it is added to the built-in
@@ -147,5 +160,7 @@ public static class SystemRoles
             [Permissions.ReportsView, Permissions.ReportsCreate, Permissions.ReportsEdit, Permissions.ReportPatientsManage]),
         (LabTechnologist, "Collects specimens, enters and releases lab results (LabFlow).",
             [Permissions.PatientsView, Permissions.LabFrontDesk, Permissions.LabResultsView, Permissions.LabResultsEnter]),
+        (Pharmacist, "Receives prescriptions, dispenses, keeps the stock (PharmaFlow).",
+            [Permissions.PharmaReception, Permissions.PharmaDispense, Permissions.PharmaStock]),
     ];
 }

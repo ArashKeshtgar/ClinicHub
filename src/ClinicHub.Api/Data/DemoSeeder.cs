@@ -25,7 +25,7 @@ public class DemoOptions
 /// </summary>
 public static class DemoSeeder
 {
-    public static readonly string[] DemoUsers = ["frontdesk", "nurse", "dr.patel", "billing", "privacy", "admin"];
+    public static readonly string[] DemoUsers = ["frontdesk", "nurse", "dr.patel", "billing", "privacy", "admin", "pharmacist"];
     public static TimeZoneInfo Toronto { get; } = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
 
     private static readonly DayOfWeek[] Weekdays = [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday];
@@ -42,7 +42,7 @@ public static class DemoSeeder
     [
         new("frontdesk", "Jordan Lee"), new("nurse", "Sam Okafor", "RN"), new("dr.patel", "Dr. Nadia Patel", "MD, CCFP"),
         new("billing", "Chris Moreau"), new("privacy", "Alex Tremblay"), new("admin", "Clinic Administrator", PlatformAdmin: true),
-        new("dr.chen", "Dr. Marcus Chen", "MD, CCFP"), new("dr.rossi", "Dr. Elena Rossi", "MD, CCFP"), new("dr.haddad", "Dr. Omar Haddad", "MD, FRCPC"),
+        new("pharmacist", "Taylor Singh", "RPh"), new("dr.chen", "Dr. Marcus Chen", "MD, CCFP"), new("dr.rossi", "Dr. Elena Rossi", "MD, CCFP"), new("dr.haddad", "Dr. Omar Haddad", "MD, FRCPC"),
         new("np.mensah", "Grace Mensah", "NP-PHC"), new("ls.frontdesk", "Riley Morgan"), new("ls.nurse", "Priya Nair", "RPN"),
         new("dr.okoye", "Dr. Hannah Okoye", "MD, CCFP"), new("np.fraser", "Liam Fraser", "NP-PHC"),
     ];
@@ -53,7 +53,8 @@ public static class DemoSeeder
             6, 400, "HV", 20261010, "frontdesk", "nurse",
             [("frontdesk", SystemRoles.FrontDesk), ("nurse", SystemRoles.Nurse), ("dr.patel", SystemRoles.Physician), ("billing", SystemRoles.Billing),
              ("privacy", SystemRoles.PrivacyOfficer), ("admin", SystemRoles.Administrator), ("dr.chen", SystemRoles.Physician),
-             ("dr.rossi", SystemRoles.Physician), ("dr.haddad", SystemRoles.Physician), ("np.mensah", SystemRoles.Physician)],
+             ("dr.rossi", SystemRoles.Physician), ("dr.haddad", SystemRoles.Physician), ("np.mensah", SystemRoles.Physician),
+             ("pharmacist", SystemRoles.Pharmacist)],
             [
                 // Dr. Patel: Monday, Tuesday, Thursday and the weekend walk-in clinic here; Wednesday and Friday at Lakeshore.
                 new("Dr.", "Nadia", "Patel", ProviderKinds.Physician, "123456", "00", "Family practice", 30, "dr.patel",
