@@ -418,10 +418,13 @@ function Addenda({ enc, canAdd, busy, onAdd }: { enc: Encounter; canAdd: boolean
 const ORDER_STATUS: Record<string, [string, string]> = {
   Draft: ['Sending…', 'none'], Accepted: ['Received', 'ohip'], InProgress: ['In progress', 'rmb'], Completed: ['Resulted', 'ohip'],
   Cancelled: ['Cancelled', ''], Failed: ['Not delivered', 'none'], Cancelling: ['Cancelling…', 'none'],
+  AwaitingResult: ['Awaiting result', 'rmb'],
 }
 
+const ORDER_TARGET: Record<string, string> = { LabFlow: 'lab', ClinicReport: 'ClinicReport', ExternalLab: 'external lab' }
+
 /** Statuses an order can still be withdrawn from (the application decides once it has the order). */
-const CANCELLABLE = ['Draft', 'Failed', 'Accepted', 'InProgress']
+const CANCELLABLE = ['Draft', 'Failed', 'Accepted', 'InProgress', 'AwaitingResult']
 
 /**
  * Lab tests (LabFlow) and echo / ECG (ClinicReport) from this visit. Each goes as a FHIR ServiceRequest; the status
@@ -484,7 +487,7 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
               const [label, cls] = ORDER_STATUS[o.status] ?? [o.status, '']
               return (
                 <li key={o.id} style={{ flexWrap: 'wrap' }}>
-                  <span className="desc">{o.display}<span className="muted small"> · {o.target === 'LabFlow' ? 'lab' : 'ClinicReport'}{o.priority === 'Stat' ? ' · STAT' : ''}</span></span>
+                  <span className="desc">{o.display}<span className="muted small"> · {ORDER_TARGET[o.target] ?? o.target}{o.priority === 'Stat' ? ' · STAT' : ''}</span></span>
                   <span className={`badge ${cls}`} title={o.lastError ?? (o.externalId ? `${o.target} order ${o.externalId}` : undefined)}>{label}</span>
                   {o.result && (
                     <div className="small" style={{ flexBasis: '100%' }}>
@@ -501,7 +504,7 @@ function OrdersCard({ encounterId, canOrder }: { encounterId: number; canOrder: 
                   {o.statusNote && o.status !== 'Cancelled' && <div className="muted small" style={{ flexBasis: '100%' }}>{o.statusNote}</div>}
                   {cancelling?.id === o.id && (
                     <div style={{ flexBasis: '100%', display: 'grid', gap: '.4rem' }}>
-                      <label className="small">Why cancel? (sent to {o.target === 'LabFlow' ? 'the lab' : 'ClinicReport'})
+                      <label className="small">Why cancel?{o.target === 'ExternalLab' ? ' (the lab is not told from here)' : ` (sent to ${o.target === 'LabFlow' ? 'the lab' : 'ClinicReport'})`}
                         <input value={cancelling.reason} maxLength={200} autoFocus placeholder="e.g. Ordered in error"
                           onChange={e => setCancelling({ id: o.id, reason: e.target.value })} />
                       </label>

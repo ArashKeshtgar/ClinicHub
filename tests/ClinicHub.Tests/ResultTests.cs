@@ -127,6 +127,76 @@ public class ResultTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Forbidden, unknown.StatusCode);
     }
 
+    /// <summary>What IntegrationHub posts for an HL7 ORU^R01: a DiagnosticReport on the order's number, with LOINC-coded Observations.</summary>
+    private static JsonObject HubReport(string slug, int order) => new()
+    {
+        ["resourceType"] = "Bundle", ["type"] = "transaction",
+        ["entry"] = new JsonArray(
+            new JsonObject
+            {
+                ["fullUrl"] = "urn:uuid:report",
+                ["resource"] = new JsonObject
+                {
+                    ["resourceType"] = "DiagnosticReport", ["status"] = "final",
+                    ["identifier"] = new JsonArray(new JsonObject { ["system"] = "urn:test:external-lab", ["value"] = $"X-{order}" }),
+                    ["basedOn"] = new JsonArray(new JsonObject { ["identifier"] = new JsonObject { ["system"] = $"urn:clinichub:{slug}:service-request", ["value"] = order.ToString() } }),
+                    ["result"] = new JsonArray(new JsonObject { ["reference"] = "urn:uuid:obs-0" }),
+                },
+            },
+            new JsonObject
+            {
+                ["fullUrl"] = "urn:uuid:obs-0",
+                ["resource"] = Observation("Hemoglobin A1c", 7.4m, "%", "H", "4.0 - 6.0"),
+            }),
+    };
+
+    [Fact]
+    public async Task An_HL7_result_from_IntegrationHub_answers_an_order_placed_to_the_external_lab()
+    {
+        var id = await RoomedVisitForDrPatel(factory, db => db.Patients.Where(p => p.HealthCardNumber != null).OrderByDescending(p => p.Id).Skip(4).FirstAsync());
+        var dr = await factory.SignInAsync("dr.patel");
+        factory.Fhir.FailWith = null;
+        var before = factory.Fhir.Requests.Count;
+        var placed = await Json(await dr.PostAsJsonAsync($"/api/encounters/{id}/orders",
+            new { items = new[] { new { target = "ExternalLab", code = "4548-4" } }, priority = "Routine" }));
+        await factory.Services.GetRequiredService<OutboxDispatcher>().DispatchAsync();
+        var order = (int)placed[0]!["id"]!;
+
+        // Recorded, not sent: nothing went out, and the order says so.
+        Assert.Equal(before, factory.Fhir.Requests.Count);
+        Assert.Equal("AwaitingResult", (string)placed[0]!["status"]!);
+        Assert.Contains("not sent the order", (string)placed[0]!["statusNote"]!);
+
+        var token = await AppToken("integrationhub", SsoTests.HubSecret);
+        await Json(await Post(token, HubReport("harbourview", order)));
+
+        var orders = await Json(await dr.GetAsync($"/api/encounters/{id}/orders"));
+        Assert.Equal("Completed", (string)orders[0]!["status"]!);
+        var row = Assert.Single((await Json(await dr.GetAsync("/api/results"))).AsArray(), r => (int)r!["orderId"]! == order)!;
+        Assert.Equal("ExternalLab", (string)row["target"]!);
+        Assert.True((bool)row["isAbnormal"]!);
+        Assert.Contains("Hemoglobin A1c: 7.4 % (H) [4.0 - 6.0]", (string)row["summary"]!);
+    }
+
+    [Fact]
+    public async Task IntegrationHub_answers_only_external_lab_orders_at_the_clinic_they_were_placed()
+    {
+        var (_, _, labflowOrder) = await Ordered(5, "LabFlow", "CBC");
+        var id = await RoomedVisitForDrPatel(factory, db => db.Patients.Where(p => p.HealthCardNumber != null).OrderByDescending(p => p.Id).Skip(6).FirstAsync());
+        var dr = await factory.SignInAsync("dr.patel");
+        var external = (int)(await Json(await dr.PostAsJsonAsync($"/api/encounters/{id}/orders",
+            new { items = new[] { new { target = "ExternalLab", code = "3016-3" } }, priority = "Routine" })))[0]!["id"]!;
+
+        var hub = await AppToken("integrationhub", SsoTests.HubSecret);
+        // An order sent to LabFlow is not the external lab's to answer, and the other way round.
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post(hub, HubReport("harbourview", labflowOrder))).StatusCode);
+        var lab = await AppToken("labflow", "test-labflow-secret");
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post(lab, HubReport("harbourview", external))).StatusCode);
+        // The order number alone is not enough: it has to be that clinic's order.
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post(hub, HubReport("lakeshore", external))).StatusCode);
+        Assert.Null((await Json(await dr.GetAsync($"/api/encounters/{id}/orders")))[0]!["result"]);
+    }
+
     [Fact]
     public async Task A_token_without_the_results_scope_is_refused()
     {

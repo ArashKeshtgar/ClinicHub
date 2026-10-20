@@ -53,6 +53,9 @@ patient data leaves the offline copy.
       [docs/architecture.md](docs/architecture.md#orders-over-fhir)
 - [x] Results back from LabFlow and ClinicReport (DiagnosticReport) and the results inbox, see
       [docs/architecture.md](docs/architecture.md#results-back)
+- [x] External laboratory: results that IntegrationHub brings in over HL7 are accepted for orders placed to an
+      `ExternalLab` target (a few send-out tests in the catalog). **The order is recorded only: ClinicHub does not
+      send it to the lab**, see [docs/architecture.md](docs/architecture.md#external-laboratory-results-over-hl7)
 - [x] Cancelling an order: at once if not yet delivered, otherwise the application is asked and may refuse
       (results entered, report started), see [docs/architecture.md](docs/architecture.md#cancelling-an-order)
 - [x] Master patient index: registration and corrections with health card checks, likely duplicates stopped at

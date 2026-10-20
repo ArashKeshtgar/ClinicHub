@@ -40,7 +40,7 @@ export default function Results() {
             <header>
               <div>
                 <strong>{r.order}</strong>
-                <span className="muted small"> · {r.target === 'LabFlow' ? 'LabFlow' : 'ClinicReport'} · {localDateTime(r.receivedUtc)}</span>
+                <span className="muted small"> · {r.target === 'ExternalLab' ? 'External lab' : r.target} · {localDateTime(r.receivedUtc)}</span>
                 <div className="small">{r.patient} <span className="mono muted">{r.mrn}</span> · ordered by Dr. {r.requester}</div>
               </div>
               <div className="badge-row">

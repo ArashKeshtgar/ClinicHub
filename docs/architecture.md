@@ -137,7 +137,9 @@ and ClinicReport over FHIR, and results back (see the README's status list).
 
 ## Orders over FHIR
 
-A clinician orders from the visit page: lab tests go to LabFlow, echo and ECG to ClinicReport.
+A clinician orders from the visit page: lab tests go to LabFlow, echo and ECG to ClinicReport. (A few tests can also
+be placed with an external laboratory; those are only recorded, not sent: see
+[External laboratory](#external-laboratory-results-over-hl7).)
 
 ```mermaid
 sequenceDiagram
@@ -199,6 +201,37 @@ sequenceDiagram
 - **Results inbox** (`/results`): the clinic's results, abnormal first, *My orders* or *Whole clinic*; the
   physician acknowledges each (`results.review`, logged under PHIPA). The visit page shows the result with the
   order.
+
+## External laboratory (results over HL7)
+
+A laboratory outside the group sends HL7 v2 ORU^R01 results to IntegrationHub over MLLP. The hub maps them to a FHIR
+DiagnosticReport Bundle and posts them to `/fhir` with the token of its `integrationhub` client (scope `results`).
+ClinicHub files them like LabFlow's and ClinicReport's: the result lands in the ordering physician's inbox and the
+order becomes *Completed*.
+
+- **A third order target, `ExternalLab`** (`TargetSystems.ExternalLab`). `ResultEndpoints.Receive` maps the client
+  `integrationhub` to it, the way `labflow` maps to `LabFlow` and `clinicreport` to `ClinicReport`. The rule is the
+  same for all three: a result is accepted only for an order that was sent to that target, at the clinic named in
+  `basedOn`. The hub cannot answer a LabFlow order, LabFlow cannot answer an external-lab order, and an order number
+  from another clinic finds nothing (403 in each case). A migration widens `CK_ServiceRequest_Target`.
+- **How an order gets the target:** the order catalog (`OrderCatalog`) lists a few tests under the target
+  `ExternalLab` (HbA1c, creatinine, TSH, 25-hydroxyvitamin D, by LOINC). The physician picks one on the visit page's
+  Orders card, under the heading *ExternalLab*, like any other test. Nothing else chooses the target: there is no
+  per-patient or per-clinic routing.
+- **What placing it does:** the order is saved with status `AwaitingResult` and a note saying so. **No outbox
+  message is written and nothing is sent to the lab or to IntegrationHub.** *Cancel* changes the order here only; the
+  lab is not asked. The order's number is what the hub's mapping must carry back in `basedOn` to match a result to it; how the lab
+  learns that number is not settled here (ClinicHub only reads `basedOn`).
+- **Logs:** nothing new is logged; a refusal names only the client, the clinic and the order number.
+
+**Not built:**
+
+- Sending the order to the external lab, from ClinicHub or through IntegrationHub (an HL7 ORM^O01 or an electronic
+  requisition). Until it exists, the requisition reaches the lab outside ClinicHub (paper, phone, the lab's own
+  portal), and the order here only records that it was placed and waits for the result.
+- Telling the lab about a cancellation, or noticing that the lab never answered (no overdue marker).
+- Any way to turn the target on or off per clinic, or to edit the test list outside the code.
+- Results for a test nobody ordered from ClinicHub: they are refused, not matched by patient.
 
 ## Cancelling an order
 
@@ -269,8 +302,8 @@ IntegrationHub (the message hub) signs in through ClinicHub with two clients tha
 `Sso:Clients`, so its token carries the `integrationhub` permissions without the prefix) and `integrationhub` is the
 confidential client the hub uses for results that arrive over HL7 (scope `results`). The permissions are
 `integrationhub:messages.view` and `integrationhub:messages.replay`; the Administrator role has both, no other role does.
-**Not built:** an order target for an external lab. ClinicHub accepts results only for orders it sent to LabFlow or
-ClinicReport, so a result the hub brings in over HL7 is refused (403) until one exists.
+The `integrationhub` client is the sender of results for the external-lab target, see
+[External laboratory](#external-laboratory-results-over-hl7).
 
 ## Master patient index
 

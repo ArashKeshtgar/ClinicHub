@@ -113,6 +113,35 @@ public class OrderTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task An_external_lab_test_is_recorded_without_a_message_and_is_cancelled_here()
+    {
+        var (dr, encounter) = await Visit(4);
+        factory.Fhir.FailWith = null;
+        var placed = await Json(await dr.PostAsJsonAsync($"/api/encounters/{encounter}/orders", Order(("ExternalLab", "4548-4"), ("LabFlow", "CBC"))));
+        var external = placed.AsArray().Single(o => (string)o!["target"]! == "ExternalLab")!;
+        Assert.Equal("AwaitingResult", (string)external["status"]!);
+        Assert.Equal("Draft", (string)placed.AsArray().Single(o => (string)o!["target"]! == "LabFlow")!["status"]!);
+
+        var before = factory.Fhir.Requests.Count;
+        Assert.Equal(1, await Dispatcher.DispatchAsync());   // LabFlow's message only
+        Assert.Single(factory.Fhir.Requests.Skip(before));
+        var afterDispatch = factory.Fhir.Requests.Count;
+        await using (var db = new TestDatabaseReader(factory).Context())
+        {
+            var order = await db.ServiceRequests.SingleAsync(s => s.Id == (int)external["id"]!);
+            Assert.Null(order.OutboxMessageId);
+            Assert.Null(order.SentUtc);
+            Assert.DoesNotContain(await db.Outbox.ToListAsync(), m => m.Destination == "ExternalLab");
+        }
+
+        // Withdrawing it is a change here only: the lab was never told, so there is no one to ask.
+        var cancelled = await Json(await dr.PostAsJsonAsync($"/api/orders/{(int)external["id"]!}/cancel", new { reason = "Ordered in error" }));
+        Assert.Equal("Cancelled", (string)cancelled.AsArray().Single(o => (int)o!["id"]! == (int)external["id"]!)!["status"]!);
+        Assert.Equal(0, await Dispatcher.DispatchAsync());
+        Assert.Equal(afterDispatch, factory.Fhir.Requests.Count);
+    }
+
+    [Fact]
     public async Task The_order_and_its_message_are_saved_together()
     {
         var (dr, encounter) = await Visit(3);

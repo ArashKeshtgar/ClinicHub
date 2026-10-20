@@ -15,8 +15,9 @@ namespace ClinicHub.Api.Endpoints;
 
 /// <summary>
 /// Results coming back: LabFlow and ClinicReport post FHIR DiagnosticReports (with their Observations) to /fhir,
-/// each naming the ClinicHub order it answers in basedOn. They land in the ordering clinician's results inbox,
-/// where someone with results.review acknowledges them.
+/// and so does IntegrationHub for an external lab (the HL7 results it has mapped), each naming the ClinicHub order
+/// it answers in basedOn. They land in the ordering clinician's results inbox, where someone with results.review
+/// acknowledges them.
 /// </summary>
 public static class ResultEndpoints
 {
@@ -108,7 +109,9 @@ public static class ResultEndpoints
             return Outcome("Expected DiagnosticReports (alone or in a Bundle).");
 
         var client = sender.GetClaim(OpenIddictConstants.Claims.ClientId) ?? sender.GetClaim(OpenIddictConstants.Claims.Subject);
-        var target = client switch { "labflow" => TargetSystems.LabFlow, "clinicreport" => TargetSystems.ClinicReport, _ => null };
+        var target = client switch { "labflow" => TargetSystems.LabFlow, "clinicreport" => TargetSystems.ClinicReport,
+            // IntegrationHub brings in the HL7 results of a laboratory outside the group.
+            "integrationhub" => TargetSystems.ExternalLab, _ => null };
         if (target is null)
             return Outcome($"{client} does not send results to ClinicHub.", StatusCodes.Status403Forbidden);
 

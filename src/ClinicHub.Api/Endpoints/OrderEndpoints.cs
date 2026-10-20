@@ -10,7 +10,8 @@ namespace ClinicHub.Api.Endpoints;
 
 /// <summary>
 /// Orders from a visit: lab tests go to LabFlow, echo and ECG to ClinicReport, as FHIR ServiceRequests. Placing an
-/// order saves it with its outgoing message in one transaction; the outbox worker delivers the message.
+/// order saves it with its outgoing message in one transaction; the outbox worker delivers the message. A test for an
+/// external lab is only recorded: there is no message, and its result comes back through IntegrationHub.
 /// </summary>
 public static class OrderEndpoints
 {
@@ -23,11 +24,15 @@ public static class OrderEndpoints
         DateTime CreatedUtc, DateTime? SentUtc, string? ExternalId, string Requester, int Attempts, string? LastError, OrderResult? Result,
         string? CancelReason, string? StatusNote);
 
+    /// <summary>Said on every external-lab order, so nobody takes "recorded" for "sent".</summary>
+    public const string ExternalLabNote = "Recorded in ClinicHub only: the lab is not sent the order from here. Its result is filed when it comes back.";
+
     public static void MapOrderEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/orders/catalog", (IOptionsMonitor<IntegrationOptions> integrations) =>
             OrderCatalog.All.Select(i => new CatalogItem(i.Target, i.Code, i.Display, i.Group,
-                !string.IsNullOrWhiteSpace(integrations.CurrentValue.For(i.Target).FhirBaseUrl))))
+                // Nothing to connect for an external lab: ClinicHub sends it nothing.
+                i.Target == TargetSystems.ExternalLab || !string.IsNullOrWhiteSpace(integrations.CurrentValue.For(i.Target).FhirBaseUrl))))
             .WithTags("Orders").RequireAuthorization(Permissions.EncountersView);
 
         app.MapGet("/api/encounters/{id:int}/orders", async (int id, ClinicHubDbContext db) => await Orders(db, id))
@@ -70,6 +75,19 @@ public static class OrderEndpoints
                 var placed = new List<ServiceRequest>();
                 foreach (var group in items.GroupBy(i => i!.Target))
                 {
+                    if (group.Key == TargetSystems.ExternalLab)
+                    {
+                        // Recorded only: no message to send. The lab's result comes back through IntegrationHub and finds the order by its number.
+                        var recorded = group.Select(i => new ServiceRequest
+                        {
+                            EncounterId = encounter.Id, PatientId = encounter.PatientId, RequesterProviderId = providerId, TargetSystem = group.Key,
+                            Code = i!.Code, Display = i.Display, Priority = priority, ClinicalNotes = notes, Status = ServiceRequestStatus.AwaitingResult,
+                            StatusNote = ExternalLabNote, CreatedUtc = now,
+                        }).ToList();
+                        db.ServiceRequests.AddRange(recorded);
+                        placed.AddRange(recorded);
+                        continue;
+                    }
                     var message = new OutboxMessage { Destination = group.Key, Kind = OutboxKinds.Order, CreatedUtc = now };
                     db.Outbox.Add(message);
                     await db.SaveChangesAsync();

@@ -273,7 +273,7 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
         {
             e.ToTable("ServiceRequest", "orders", t =>
             {
-                t.HasCheckConstraint("CK_ServiceRequest_Target", In("TargetSystem", [TargetSystems.LabFlow, TargetSystems.ClinicReport]));
+                t.HasCheckConstraint("CK_ServiceRequest_Target", In("TargetSystem", [TargetSystems.LabFlow, TargetSystems.ClinicReport, TargetSystems.ExternalLab]));
                 t.HasCheckConstraint("CK_ServiceRequest_Priority", "Priority IN ('Routine','Stat')");
             });
             e.HasOne(x => x.RequesterProvider).WithMany().HasForeignKey(x => x.RequesterProviderId);

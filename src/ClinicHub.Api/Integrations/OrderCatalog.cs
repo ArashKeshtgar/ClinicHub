@@ -49,9 +49,16 @@ public static class OrderCatalog
         Lab(FhirSystems.Loinc, "2857-1", "PSA", "Chemistry"),
         new(TargetSystems.ClinicReport, FhirSystems.ClinicReportTemplate, "echo-tte", "Transthoracic echocardiogram", "Cardiology"),
         new(TargetSystems.ClinicReport, FhirSystems.ClinicReportTemplate, "ecg-12-lead", "12-lead ECG", "Cardiology"),
+        // Sent out to a laboratory outside the group: recorded here only, the result comes back through IntegrationHub.
+        External("4548-4", "Hemoglobin A1c", "Diabetes"),
+        External("14682-9", "Creatinine", "Chemistry"),
+        External("3016-3", "TSH", "Endocrine"),
+        External("14635-7", "25-hydroxyvitamin D", "Chemistry"),
     ];
 
     private static Item Lab(string system, string code, string display, string group) => new(TargetSystems.LabFlow, system, code, display, group);
+
+    private static Item External(string loinc, string display, string group) => new(TargetSystems.ExternalLab, FhirSystems.Loinc, loinc, display, group);
 
     public static Item? Find(string target, string code) => All.FirstOrDefault(i => i.Target == target && i.Code == code);
 }

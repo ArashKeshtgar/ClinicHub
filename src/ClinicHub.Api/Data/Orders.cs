@@ -2,12 +2,18 @@ using System.ComponentModel.DataAnnotations;
 
 namespace ClinicHub.Api.Data;
 
-// orders schema: work sent to LabFlow and ClinicReport, results coming back, and the message queues.
+// orders schema: work sent to LabFlow and ClinicReport (or placed with an external lab), results coming back, and the message queues.
 
 public static class TargetSystems
 {
     public const string LabFlow = "LabFlow";
     public const string ClinicReport = "ClinicReport";
+
+    /// <summary>
+    /// A laboratory outside the group, whose results arrive over HL7 through IntegrationHub. ClinicHub records the order
+    /// and accepts the lab's result for it, but sends the lab nothing: there is no outbox message (see <see cref="ServiceRequestStatus.AwaitingResult"/>).
+    /// </summary>
+    public const string ExternalLab = "ExternalLab";
 
     /// <summary>The pharmacy: electronic prescriptions go here (not an order target: see <see cref="Prescription"/>).</summary>
     public const string PharmaFlow = "PharmaFlow";
@@ -22,6 +28,12 @@ public static class ServiceRequestStatus
     public const string Completed = "Completed";
     public const string Cancelled = "Cancelled";
     public const string Failed = "Failed";
+
+    /// <summary>
+    /// Recorded for an external lab: ClinicHub sends it nothing, the requisition reaches the lab some other way, and the
+    /// order waits here for a result to come back. Not the same as <see cref="Accepted"/>: nobody has acknowledged it.
+    /// </summary>
+    public const string AwaitingResult = "AwaitingResult";
 
     /// <summary>Asked the other application to cancel; waiting for its answer.</summary>
     public const string Cancelling = "Cancelling";
@@ -55,7 +67,7 @@ public static class PrescriptionStatus
     public const string Cancelling = "Cancelling";
 }
 
-/// <summary>An order: a lab test for LabFlow, or an ECG / echo for ClinicReport (FHIR ServiceRequest).</summary>
+/// <summary>An order: a lab test for LabFlow or an external lab, or an ECG / echo for ClinicReport (FHIR ServiceRequest).</summary>
 public class ServiceRequest
 {
     public int Id { get; set; }

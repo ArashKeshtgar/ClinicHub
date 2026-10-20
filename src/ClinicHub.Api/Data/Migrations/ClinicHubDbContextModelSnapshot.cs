@@ -1948,7 +1948,7 @@ namespace ClinicHub.Api.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_ServiceRequest_Priority", "Priority IN ('Routine','Stat')");
 
-                            t.HasCheckConstraint("CK_ServiceRequest_Target", "TargetSystem IN ('LabFlow','ClinicReport')");
+                            t.HasCheckConstraint("CK_ServiceRequest_Target", "TargetSystem IN ('LabFlow','ClinicReport','ExternalLab')");
                         });
                 });
 

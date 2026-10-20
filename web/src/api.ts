@@ -271,10 +271,10 @@ export const firstError = (err: unknown, fallback: string) =>
 
 // --- orders to LabFlow and ClinicReport (FHIR) ---
 
-export type CatalogItem = { target: 'LabFlow' | 'ClinicReport'; code: string; display: string; group: string; connected: boolean }
-export type OrderStatus = 'Draft' | 'Accepted' | 'InProgress' | 'Completed' | 'Cancelled' | 'Failed' | 'Cancelling'
+export type CatalogItem = { target: 'LabFlow' | 'ClinicReport' | 'ExternalLab'; code: string; display: string; group: string; connected: boolean }
+export type OrderStatus = 'Draft' | 'AwaitingResult' | 'Accepted' | 'InProgress' | 'Completed' | 'Cancelled' | 'Failed' | 'Cancelling'
 export type Order = {
-  id: number; target: 'LabFlow' | 'ClinicReport'; code: string; display: string; priority: 'Routine' | 'Stat'; status: OrderStatus
+  id: number; target: 'LabFlow' | 'ClinicReport' | 'ExternalLab'; code: string; display: string; priority: 'Routine' | 'Stat'; status: OrderStatus
   notes?: string; createdUtc: string; sentUtc?: string; externalId?: string; requester: string; attempts: number; lastError?: string
   result?: { id: number; status: string; isAbnormal: boolean; summary?: string; externalUrl?: string; receivedUtc: string; reviewedUtc?: string }
   cancelReason?: string; statusNote?: string
@@ -314,7 +314,7 @@ export const prescriptions = {
 
 export type ResultRow = {
   id: number; receivedUtc: string; status: 'Preliminary' | 'Final' | 'Amended' | 'Cancelled'; isAbnormal: boolean; summary?: string; externalUrl?: string
-  orderId: number; order: string; target: 'LabFlow' | 'ClinicReport'; patientId: number; patient: string; mrn: string; encounterId: number
+  orderId: number; order: string; target: 'LabFlow' | 'ClinicReport' | 'ExternalLab'; patientId: number; patient: string; mrn: string; encounterId: number
   requester: string; reviewedUtc?: string; reviewedBy?: string; withheld: boolean
 }
 
