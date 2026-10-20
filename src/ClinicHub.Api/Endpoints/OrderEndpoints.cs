@@ -11,7 +11,8 @@ namespace ClinicHub.Api.Endpoints;
 /// <summary>
 /// Orders from a visit: lab tests go to LabFlow, echo and ECG to ClinicReport, as FHIR ServiceRequests. Placing an
 /// order saves it with its outgoing message in one transaction; the outbox worker delivers the message. A test for an
-/// external lab is only recorded: there is no message, and its result comes back through IntegrationHub.
+/// external lab goes the same way through IntegrationHub (as HL7) when that route is set up; otherwise it is only
+/// recorded, and either way its result comes back through IntegrationHub.
 /// </summary>
 public static class OrderEndpoints
 {
@@ -39,7 +40,7 @@ public static class OrderEndpoints
             .WithTags("Orders").RequireAuthorization(Permissions.EncountersView).AddEndpointFilter(ConsentEndpoints.EncounterFilter);
 
         app.MapPost("/api/encounters/{id:int}/orders", async (int id, PlaceOrders req, ClaimsPrincipal user, ClinicHubDbContext db,
-            CatalogDbContext catalog, TimeProvider clock, HttpContext http) =>
+            CatalogDbContext catalog, TimeProvider clock, HttpContext http, IOptionsMonitor<IntegrationOptions> integrations) =>
         {
             var encounter = await db.Encounters.Include(e => e.Patient).SingleOrDefaultAsync(e => e.Id == id);
             if (encounter is null)
@@ -75,9 +76,11 @@ public static class OrderEndpoints
                 var placed = new List<ServiceRequest>();
                 foreach (var group in items.GroupBy(i => i!.Target))
                 {
-                    if (group.Key == TargetSystems.ExternalLab)
+                    if (group.Key == TargetSystems.ExternalLab && string.IsNullOrWhiteSpace(integrations.CurrentValue.ExternalLab.FhirBaseUrl))
                     {
-                        // Recorded only: no message to send. The lab's result comes back through IntegrationHub and finds the order by its number.
+                        // No route to the lab is set up: recorded only, no message to send. The lab's result comes back through
+                        // IntegrationHub and finds the order by its number. With Integrations:ExternalLab:FhirBaseUrl set, it goes
+                        // through the outbox like any other order.
                         var recorded = group.Select(i => new ServiceRequest
                         {
                             EncounterId = encounter.Id, PatientId = encounter.PatientId, RequesterProviderId = providerId, TargetSystem = group.Key,

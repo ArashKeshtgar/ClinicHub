@@ -23,6 +23,13 @@ public class IntegrationOptions
     public Target ClinicReport { get; set; } = new();
 
     /// <summary>
+    /// A laboratory outside the group, reached through IntegrationHub's route <c>externallab</c> (it sends the order as HL7
+    /// ORM^O01), e.g. http://localhost:5700/route/externallab/fhir. Empty: external-lab orders are only recorded here
+    /// (<see cref="ServiceRequestStatus.AwaitingResult"/>) and nothing is sent.
+    /// </summary>
+    public Target ExternalLab { get; set; } = new();
+
+    /// <summary>
     /// The pharmacy: where electronic prescriptions go, e.g. the hub's route http://localhost:5700/route/pharmaflow/fhir
     /// or PharmaFlow's own /fhir. Empty: prescriptions wait until it is set.
     /// </summary>
@@ -43,6 +50,7 @@ public class IntegrationOptions
     {
         TargetSystems.LabFlow => LabFlow,
         TargetSystems.PharmaFlow => PharmaFlow,
+        TargetSystems.ExternalLab => ExternalLab,
         _ => ClinicReport,
     };
 
@@ -51,6 +59,7 @@ public class IntegrationOptions
     {
         TargetSystems.LabFlow => "labflow",
         TargetSystems.PharmaFlow => "pharmaflow",
+        TargetSystems.ExternalLab => "externallab",
         _ => "clinicreport",
     };
 

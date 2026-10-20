@@ -179,6 +179,39 @@ public class ResultTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task With_the_hub_route_set_an_external_lab_order_is_sent_through_the_outbox_and_then_answered()
+    {
+        var options = factory.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<IntegrationOptions>>().CurrentValue;
+        options.ExternalLab.FhirBaseUrl = "https://hub.test/route/externallab/fhir";
+        try
+        {
+            var (dr, encounter, order) = await Ordered(7, "ExternalLab", "3016-3");
+            var sent = Assert.Single(factory.Fhir.Requests, r => r.Url.Host == "hub.test");
+            Assert.Equal("/route/externallab/fhir", sent.Url.AbsolutePath);
+            var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().ReadJwtToken(sent.Token);
+            Assert.Contains("externallab", jwt.Audiences);
+            Assert.Contains(jwt.Claims, c => c.Type == "scope" && c.Value == "orders");
+            var request = sent.Bundle["entry"]!.AsArray().Select(e => e!["resource"]!).Single(r => (string)r["resourceType"]! == "ServiceRequest");
+            Assert.Equal("3016-3", (string)request["code"]!["coding"]![0]!["code"]!);
+            Assert.Equal($"urn:clinichub:harbourview:service-request", (string)request["identifier"]![0]!["system"]!);
+            Assert.Equal(order.ToString(), (string)request["identifier"]![0]!["value"]!);
+
+            var orders = await Json(await dr.GetAsync($"/api/encounters/{encounter}/orders"));
+            Assert.Equal("Accepted", (string)orders[0]!["status"]!);
+            Assert.Null(orders[0]!["statusNote"]);
+
+            // The lab's HL7 result, mapped by the hub, answers it.
+            var token = await AppToken("integrationhub", SsoTests.HubSecret);
+            await Json(await Post(token, HubReport("harbourview", order)));
+            Assert.Equal("Completed", (string)(await Json(await dr.GetAsync($"/api/encounters/{encounter}/orders")))[0]!["status"]!);
+        }
+        finally
+        {
+            options.ExternalLab.FhirBaseUrl = null;
+        }
+    }
+
+    [Fact]
     public async Task IntegrationHub_answers_only_external_lab_orders_at_the_clinic_they_were_placed()
     {
         var (_, _, labflowOrder) = await Ordered(5, "LabFlow", "CBC");

@@ -218,18 +218,26 @@ order becomes *Completed*.
   `ExternalLab` (HbA1c, creatinine, TSH, 25-hydroxyvitamin D, by LOINC). The physician picks one on the visit page's
   Orders card, under the heading *ExternalLab*, like any other test. Nothing else chooses the target: there is no
   per-patient or per-clinic routing.
-- **What placing it does:** the order is saved with status `AwaitingResult` and a note saying so. **No outbox
-  message is written and nothing is sent to the lab or to IntegrationHub.** *Cancel* changes the order here only; the
-  lab is not asked. The order's number is what the hub's mapping must carry back in `basedOn` to match a result to it; how the lab
-  learns that number is not settled here (ClinicHub only reads `basedOn`).
+- **What placing it does** depends on one setting, `Integrations:ExternalLab:FhirBaseUrl`:
+  - *Set* to IntegrationHub's route (`http://localhost:5700/route/externallab/fhir`): the order goes through the outbox
+    like LabFlow's (one message per ordering, retried, token `aud` `externallab`, scope `orders`). The hub turns the
+    Bundle into an HL7 ORM^O01, sends it to the lab and answers with the lab's ACK: `Accepted` when the lab took it. A
+    cancellation goes as ORM with `CA`; the lab may refuse it, like LabFlow. The patient's name, birth date, health card
+    number and MRN and the orderer's CPSO number go to the lab, because an order needs them.
+  - *Empty*: the order is saved with status `AwaitingResult` and a note saying so. **No outbox message is written and
+    nothing is sent.** *Cancel* changes the order here only; the lab is not asked.
+
+  Either way the order's number is what the lab must quote back (placer number `{id}^{clinic}` in ORC-2/OBR-2), and
+  the hub puts it in `basedOn` of the result.
 - **Logs:** nothing new is logged; a refusal names only the client, the clinic and the order number.
 
 **Not built:**
 
-- Sending the order to the external lab, from ClinicHub or through IntegrationHub (an HL7 ORM^O01 or an electronic
-  requisition). Until it exists, the requisition reaches the lab outside ClinicHub (paper, phone, the lab's own
-  portal), and the order here only records that it was placed and waits for the result.
-- Telling the lab about a cancellation, or noticing that the lab never answered (no overdue marker).
+- Anything past the hub's ORM^O01 (IntegrationHub, phase 7): no TLS to the lab, no mapping to a lab's own test codes
+  (LOINC is sent), no lab-specific profile; seen only with IntegrationHub's `olis-sim` standing in for the lab.
+- Noticing that the lab never answered (no overdue marker). An order the lab refused (`AR`) is retried like any
+  failed delivery, 12 times, then marked *Not delivered*.
+- The lab's own order id: the ACK carries none, so `ExternalId` stays empty.
 - Any way to turn the target on or off per clinic, or to edit the test list outside the code.
 - Results for a test nobody ordered from ClinicHub: they are refused, not matched by patient.
 
