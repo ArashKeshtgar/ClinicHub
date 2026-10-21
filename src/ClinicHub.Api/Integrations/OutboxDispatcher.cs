@@ -49,7 +49,9 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
         if (message.Kind is OutboxKinds.Prescription or OutboxKinds.PrescriptionCancel)
             return await SendPrescriptionAsync(db, clinic, message, tokens, ct);
         var cancel = message.Kind == OutboxKinds.Cancel;
-        var orders = cancel
+        // A merge concerns no order: delivered or retried like the rest, it changes nothing here.
+        var merge = message.Kind == OutboxKinds.PatientMerge;
+        var orders = merge ? new List<ServiceRequest>() : cancel
             ? await db.ServiceRequests.Include(s => s.Results).Where(s => s.Id == message.ServiceRequestId).ToListAsync(ct)
             : await db.ServiceRequests.Where(s => s.OutboxMessageId == message.Id).OrderBy(s => s.Id).ToListAsync(ct);
         var target = options.CurrentValue.For(message.Destination);
@@ -88,7 +90,7 @@ public class OutboxDispatcher(IServiceScopeFactory scopes, IHttpClientFactory ht
                     o.Status = ServiceRequestStatus.Cancelled;
                     o.CancelledUtc = now;
                 }
-            else
+            else if (!merge)
             {
                 // A transaction-response lists one entry per request entry, in order; the orders come after the patient and requester.
                 var locations = (JsonNode.Parse(body)?["entry"]?.AsArray() ?? []).Select(e => (string?)e?["response"]?["location"]).ToList();

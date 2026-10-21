@@ -210,11 +210,19 @@ public static partial class PatientEndpoints
         {
             await using var tx = await db.Database.BeginTransactionAsync();
             var (to, from) = (survivor.Id, merged.Id);
+            // The applications that already have something for the merged record are told (IntegrationHub's flow 6):
+            // those its orders went to, and the pharmacy for its prescriptions. The external lab is not: it is sent orders
+            // over HL7 and has no merge message.
+            var told = await db.ServiceRequests.Where(x => x.PatientId == from && x.SentUtc != null && x.TargetSystem != TargetSystems.ExternalLab)
+                .Select(x => x.TargetSystem).Distinct().ToListAsync();
+            if (await db.Prescriptions.AnyAsync(x => x.PatientId == from && x.SentUtc != null))
+                told.Add(TargetSystems.PharmaFlow);
             await db.Appointments.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.Encounters.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.EligibilityChecks.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.Referrals.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.ServiceRequests.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            await db.Prescriptions.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.Claims.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.Invoices.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.ConsentDirectives.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
@@ -262,8 +270,16 @@ public static partial class PatientEndpoints
             foreach (var m in waiting)
             {
                 var orders = await db.ServiceRequests.Include(s => s.RequesterProvider).Where(s => s.OutboxMessageId == m.Id).OrderBy(s => s.Id).ToListAsync();
-                m.PayloadJson = FhirOrderBundle.Build(clinic, survivor, orders[0].RequesterProvider, orders, m.CreatedUtc).ToJsonString();
+                var label = await ConfidentialityLabels.ForAsync(db, to, orders[0].EncounterId);
+                m.PayloadJson = FhirOrderBundle.Build(clinic, survivor, orders[0].RequesterProvider, orders, m.CreatedUtc, label).ToJsonString();
             }
+
+            foreach (var destination in told.Distinct())
+                db.Outbox.Add(new OutboxMessage
+                {
+                    Destination = destination, Kind = OutboxKinds.PatientMerge, CreatedUtc = now,
+                    PayloadJson = FhirOrderBundle.PatientMerge(clinic, merged.Mrn, survivor.Mrn, now).ToJsonString(),
+                });
 
             var note = $"Merged {merged.Mrn} into {survivor.Mrn}";
             db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = userId, PatientId = to, Action = AccessActions.Edit, Context = note, IpAddress = ip });

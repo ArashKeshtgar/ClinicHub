@@ -15,7 +15,8 @@ public static class FhirPrescriptionBundle
 {
     private const string Utc = "yyyy-MM-ddTHH:mm:ssZ";
 
-    public static JsonObject Build(Clinic clinic, Patient patient, Provider prescriber, IReadOnlyList<Prescription> prescriptions, DateTime nowUtc)
+    public static JsonObject Build(Clinic clinic, Patient patient, Provider prescriber, IReadOnlyList<Prescription> prescriptions, DateTime nowUtc,
+        string? label = null)
     {
         var group = Identifier(FhirSystems.Clinic(clinic.Slug, "prescription-group"), $"G{prescriptions.Min(p => p.GroupNumber)}");
         var entries = new JsonArray { PatientEntry(clinic, patient), RequesterEntry(prescriber) };
@@ -24,6 +25,7 @@ public static class FhirPrescriptionBundle
             var request = new JsonObject
             {
                 ["resourceType"] = "MedicationRequest",
+                ["meta"] = ConfidentialityLabels.Meta(label),
                 ["identifier"] = new JsonArray(Identifier(FhirSystems.Clinic(clinic.Slug, "prescription"), p.Id.ToString())),
                 ["groupIdentifier"] = group.DeepClone(),
                 ["status"] = "active", ["intent"] = "order",

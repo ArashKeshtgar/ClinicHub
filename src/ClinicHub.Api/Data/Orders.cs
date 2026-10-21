@@ -51,6 +51,9 @@ public static class OutboxKinds
 
     /// <summary>A prescription is withdrawn: the same MedicationRequest with status "cancelled".</summary>
     public const string PrescriptionCancel = "MedicationRequestCancel";
+
+    /// <summary>Two records were merged: the merged MRN is replaced by the survivor's (IntegrationHub's flow 6).</summary>
+    public const string PatientMerge = "PatientMerge";
 }
 
 public static class PrescriptionStatus

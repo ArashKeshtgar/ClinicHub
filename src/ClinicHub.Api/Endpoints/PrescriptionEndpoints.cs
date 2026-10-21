@@ -87,7 +87,8 @@ public static class PrescriptionEndpoints
                 // The drugs written together share a number, the way an order's tests share a requisition.
                 foreach (var p in written)
                     p.GroupNumber = written.Min(x => x.Id);
-                message.PayloadJson = FhirPrescriptionBundle.Build(clinic, encounter.Patient, prescriber, written, now).ToJsonString();
+                var label = await ConfidentialityLabels.ForAsync(db, encounter.PatientId, encounter.Id);
+                message.PayloadJson = FhirPrescriptionBundle.Build(clinic, encounter.Patient, prescriber, written, now, label).ToJsonString();
                 db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = user.RequiredUserId(), PatientId = encounter.PatientId,
                     Action = AccessActions.Edit, Context = $"Prescribed {written.Count} from encounter {id}", IpAddress = AuthEndpoints.Ip(http) });
                 await db.SaveChangesAsync();
@@ -139,7 +140,10 @@ public static class PrescriptionEndpoints
                             db.Outbox.Remove(message);
                         }
                         else
-                            message.PayloadJson = FhirPrescriptionBundle.Build(clinic, rx.Patient, rx.PrescriberProvider, rest, now).ToJsonString();
+                        {
+                            var label = await ConfidentialityLabels.ForAsync(db, rx.PatientId, rx.EncounterId);
+                            message.PayloadJson = FhirPrescriptionBundle.Build(clinic, rx.Patient, rx.PrescriberProvider, rest, now, label).ToJsonString();
+                        }
                     }
                 }
                 else

@@ -102,7 +102,8 @@ public class ServiceTokens(IOptionsMonitor<OpenIddictServerOptions> server, IOpt
 /// <summary>An order sent to one application as one FHIR R4 transaction Bundle: the patient, the requester and the ServiceRequests.</summary>
 public static class FhirOrderBundle
 {
-    public static JsonObject Build(Clinic clinic, Patient patient, Provider requester, IReadOnlyList<ServiceRequest> orders, DateTime nowUtc)
+    public static JsonObject Build(Clinic clinic, Patient patient, Provider requester, IReadOnlyList<ServiceRequest> orders, DateTime nowUtc,
+        string? label = null)
     {
         var requisition = $"R{orders.Min(o => o.Id)}";
         var entries = new JsonArray { PatientEntry(clinic, patient), RequesterEntry(requester) };
@@ -112,6 +113,7 @@ public static class FhirOrderBundle
             entries.Add(Entry($"urn:uuid:order-{o.Id}", new JsonObject
             {
                 ["resourceType"] = "ServiceRequest",
+                ["meta"] = ConfidentialityLabels.Meta(label),
                 ["identifier"] = new JsonArray(Identifier(FhirSystems.Clinic(clinic.Slug, "service-request"), o.Id.ToString())),
                 ["requisition"] = Identifier(FhirSystems.Clinic(clinic.Slug, "requisition"), requisition),
                 ["status"] = "active", ["intent"] = "order", ["priority"] = o.Priority == "Stat" ? "stat" : "routine",
@@ -163,6 +165,34 @@ public static class FhirOrderBundle
                     ["note"] = order.CancelReason is { } why ? new JsonArray(new JsonObject { ["text"] = why }) : null,
                 },
                 ["request"] = new JsonObject { ["method"] = "PUT", ["url"] = $"ServiceRequest?identifier={system}|{order.Id}" },
+            }),
+        };
+    }
+
+    /// <summary>
+    /// A merge, for an application that has had orders or prescriptions for the merged record: the merged MRN, inactive,
+    /// replaced by the survivor's, as a conditional update. Nothing else about the patient is sent.
+    /// </summary>
+    public static JsonObject PatientMerge(Clinic clinic, string mergedMrn, string survivorMrn, DateTime nowUtc)
+    {
+        var system = FhirSystems.Clinic(clinic.Slug, "mrn");
+        return new JsonObject
+        {
+            ["resourceType"] = "Bundle", ["type"] = "transaction",
+            ["timestamp"] = nowUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            ["entry"] = new JsonArray(new JsonObject
+            {
+                ["resource"] = new JsonObject
+                {
+                    ["resourceType"] = "Patient", ["active"] = false,
+                    ["identifier"] = new JsonArray(Identifier(system, mergedMrn)),
+                    ["link"] = new JsonArray(new JsonObject
+                    {
+                        ["type"] = "replaced-by",
+                        ["other"] = new JsonObject { ["identifier"] = Identifier(system, survivorMrn) },
+                    }),
+                },
+                ["request"] = new JsonObject { ["method"] = "PUT", ["url"] = $"Patient?identifier={system}|{mergedMrn}" },
             }),
         };
     }

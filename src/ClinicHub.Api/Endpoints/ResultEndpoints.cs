@@ -134,6 +134,12 @@ public static class ResultEndpoints
                 return Outcome($"Order {orderId} at {slug} was not sent to {client}.", StatusCodes.Status403Forbidden);
 
             var externalId = (string?)report["identifier"]?[0]?["value"] ?? $"{orderId}";
+            // The lab's own number for the order (its filler order number, which IntegrationHub passes on from the
+            // HL7 result), kept on the order the first time it is seen: the ACK of an ORM^O01 carries none.
+            var filler = (string?)(report["identifier"]?.AsArray() ?? [])
+                .FirstOrDefault(i => ((string?)i?["system"])?.EndsWith(":filler-order") == true)?["value"];
+            if (!string.IsNullOrWhiteSpace(filler) && string.IsNullOrEmpty(order.ExternalId))
+                order.ExternalId = filler.Length > 64 ? filler[..64] : filler;
             var status = ((string?)report["status"] ?? "final") switch
             {
                 "preliminary" or "partial" or "registered" => "Preliminary",

@@ -138,7 +138,8 @@ public class ResultTests(ApiFactory factory) : IClassFixture<ApiFactory>
                 ["resource"] = new JsonObject
                 {
                     ["resourceType"] = "DiagnosticReport", ["status"] = "final",
-                    ["identifier"] = new JsonArray(new JsonObject { ["system"] = "urn:test:external-lab", ["value"] = $"X-{order}" }),
+                    // As IntegrationHub writes it from the result's ORC-3/OBR-3 (OruToFhir).
+                    ["identifier"] = new JsonArray(new JsonObject { ["system"] = "urn:integrationhub:hl7:EXTLAB-LAB1:filler-order", ["value"] = $"F-{order}" }),
                     ["basedOn"] = new JsonArray(new JsonObject { ["identifier"] = new JsonObject { ["system"] = $"urn:clinichub:{slug}:service-request", ["value"] = order.ToString() } }),
                     ["result"] = new JsonArray(new JsonObject { ["reference"] = "urn:uuid:obs-0" }),
                 },
@@ -172,6 +173,7 @@ public class ResultTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         var orders = await Json(await dr.GetAsync($"/api/encounters/{id}/orders"));
         Assert.Equal("Completed", (string)orders[0]!["status"]!);
+        Assert.Equal($"F-{order}", (string)orders[0]!["externalId"]!);   // the lab's own number, from the result
         var row = Assert.Single((await Json(await dr.GetAsync("/api/results"))).AsArray(), r => (int)r!["orderId"]! == order)!;
         Assert.Equal("ExternalLab", (string)row["target"]!);
         Assert.True((bool)row["isAbnormal"]!);

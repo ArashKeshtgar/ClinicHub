@@ -104,7 +104,8 @@ public static class OrderEndpoints
                     await db.SaveChangesAsync();
                     // The message is written now, with the order, so what was ordered is what gets sent.
                     message.ServiceRequestId = orders[0].Id;
-                    message.PayloadJson = FhirOrderBundle.Build(clinic, encounter.Patient, requester, orders, now).ToJsonString();
+                    var label = await ConfidentialityLabels.ForAsync(db, encounter.PatientId, encounter.Id);
+                    message.PayloadJson = FhirOrderBundle.Build(clinic, encounter.Patient, requester, orders, now, label).ToJsonString();
                     placed.AddRange(orders);
                 }
                 db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = user.RequiredUserId(), PatientId = encounter.PatientId,
@@ -161,7 +162,8 @@ public static class OrderEndpoints
                         else
                         {
                             message.ServiceRequestId = rest[0].Id;
-                            message.PayloadJson = FhirOrderBundle.Build(clinic, order.Patient, order.RequesterProvider, rest, now).ToJsonString();
+                            var label = await ConfidentialityLabels.ForAsync(db, order.PatientId, order.EncounterId);
+                            message.PayloadJson = FhirOrderBundle.Build(clinic, order.Patient, order.RequesterProvider, rest, now, label).ToJsonString();
                         }
                     }
                 }
