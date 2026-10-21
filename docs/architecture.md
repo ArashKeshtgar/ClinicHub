@@ -343,8 +343,8 @@ front desk registers (`patients.edit`), the privacy officer and administrators r
   message through the outbox: the merged MRN replaced by the kept one's, nothing else about the person. It is retried like
   an order and changes nothing on the visit. **Confidentiality labels (flow 7):** a consent directive travels with the
   order or prescription as `meta.security`: the whole record withheld is `V`, one visit or one provider `R`, none no
-  label; the applications keep it, show it and return it on their results. It is a warning to staff there, not an access
-  control. The lab's own order number from an external-lab result is kept as the order's external id.
+  label; the applications keep it, show it and return it on their results, and **close the item** until a user opens it with a
+  logged reason (break the glass, one hour, see IntegrationHub's contracts.md, flow 7). The lab's own order number from an external-lab result is kept as the order's external id.
 - **PHIPA:** opening, registering, correcting, reviewing and merging are written to the access log. The log is
   not rewritten by a merge (it records which record was opened); a patient's log includes the records merged into
   theirs.
