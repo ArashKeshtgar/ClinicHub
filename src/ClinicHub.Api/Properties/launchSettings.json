@@ -9,6 +9,20 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
+    },
+    "via-hub": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5300",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "Integrations__LabFlow__FhirBaseUrl": "http://localhost:5700/route/labflow/fhir",
+        "Integrations__ClinicReport__FhirBaseUrl": "http://localhost:5700/route/clinicreport/fhir",
+        "Integrations__PharmaFlow__FhirBaseUrl": "http://localhost:5700/route/pharmaflow/fhir",
+        "Integrations__ExternalLab__FhirBaseUrl": "http://localhost:5700/route/externallab/fhir",
+        "Integrations__Finance__BaseUrl": "http://localhost:5700/route/finance"
+      }
     }
   }
 }
