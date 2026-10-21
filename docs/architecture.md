@@ -299,8 +299,7 @@ together share a number and one outgoing message, the way the tests of an order 
   drug, patient or health card number. The `409` after filling was seen against a stand-in pharmacy and is tested in
   PharmaFlow, not yet run live against PharmaFlow.
 - **Not built, said plainly.** No refill or renewal flow, no
-  dispensed or picked-up status coming back, no printing, no confidentiality label on a prescription of a patient with
-  a directive (IntegrationHub's contract flow 7), no merge message (flow 6), no allergy list, no controlled drugs,
+  dispensed or picked-up status coming back, no printing, no allergy list, no controlled drugs,
   and a demo catalog.
 
 ### IntegrationHub's clients
@@ -336,9 +335,16 @@ front desk registers (`patients.edit`), the privacy officer and administrators r
   first name).
 - **Merging** keeps the record chosen (by default the one with more visits) and moves everything of the other to
   it, in one transaction: appointments, visits and eligibility checks, referrals, orders, claims, invoices, consent
-  directives. Empty fields of the kept record are filled from the other, the health card included. The merged
+  directives and prescriptions. Empty fields of the kept record are filled from the other, the health card included. The merged
   record stays, pointing at the kept one: searching its MRN opens the kept record, and it can no longer be edited.
   Records with two different health cards are not merged; one card has to be corrected first.
+  **Told to the applications (21 Oct 2026, IntegrationHub's flow 6):** each application that had a *delivered* order for the
+  merged record (LabFlow, ClinicReport; not the external lab) and PharmaFlow, for a delivered prescription, gets one
+  message through the outbox: the merged MRN replaced by the kept one's, nothing else about the person. It is retried like
+  an order and changes nothing on the visit. **Confidentiality labels (flow 7):** a consent directive travels with the
+  order or prescription as `meta.security`: the whole record withheld is `V`, one visit or one provider `R`, none no
+  label; the applications keep it, show it and return it on their results. It is a warning to staff there, not an access
+  control. The lab's own order number from an external-lab result is kept as the order's external id.
 - **PHIPA:** opening, registering, correcting, reviewing and merging are written to the access log. The log is
   not rewritten by a merge (it records which record was opened); a patient's log includes the records merged into
   theirs.
