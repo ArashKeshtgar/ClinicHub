@@ -34,6 +34,7 @@ public static class Permissions
         public const string LabFlow = "labflow";
         public const string Analytics = "analytics";
         public const string PharmaFlow = "pharmaflow";
+        public const string Finance = "finance";
         public const string IntegrationHub = "integrationhub";
     }
 
@@ -58,6 +59,11 @@ public static class Permissions
     public const string PharmaDispense = "pharmaflow:dispense";
     public const string PharmaStock = "pharmaflow:stock";
     public const string PharmaAdmin = "pharmaflow:admin";
+
+    // FinancePowerApp: the group's books (one ledger for every business, whichever clinic was chosen at sign-in).
+    public const string FinanceView = "finance:ledger.view";
+    public const string FinancePost = "finance:ledger.post";
+    public const string FinanceAdmin = "finance:admin";
 
     // Analytics: the group's dashboards (de-identified, no patient data).
     public const string AnalyticsDashboard = "analytics:dashboard.view";
@@ -110,6 +116,10 @@ public static class Permissions
         new(PharmaStock, "PharmaFlow", "Purchasing and stock", Apps.PharmaFlow),
         new(PharmaAdmin, "PharmaFlow", "Pharmacy administration: drug catalog, plans, base definitions", Apps.PharmaFlow),
 
+        new(FinanceView, "FinancePowerApp", "Read the books: journal, documents from the apps, reports", Apps.Finance),
+        new(FinancePost, "FinancePowerApp", "Post and reverse entries, map documents, post expenses", Apps.Finance),
+        new(FinanceAdmin, "FinancePowerApp", "Books administration: businesses, chart of accounts, periods", Apps.Finance),
+
         new(AnalyticsDashboard, "Analytics", "The clinic's dashboards (money and operations)", Apps.Analytics),
         new(AnalyticsGroup, "Analytics", "Every business of the group side by side", Apps.Analytics),
         new(AnalyticsModels, "Analytics", "Forecasts and anomaly models", Apps.Analytics),
@@ -160,8 +170,8 @@ public static class SystemRoles
              Permissions.OrdersManage, Permissions.PrescriptionsWrite, Permissions.ResultsReview, Permissions.BillingView, Permissions.ConsentOverride,
              Permissions.ReportsView, Permissions.ReportsCreate, Permissions.ReportsEdit, Permissions.ReportsSign, Permissions.ReportPatientsManage,
              Permissions.LabResultsView, Permissions.AnalyticsDashboard]),
-        (Billing, "OHIP claims, remittance and invoices.",
-            [Permissions.PatientsView, Permissions.ScheduleView, Permissions.BillingView, Permissions.BillingManage]),
+        (Billing, "OHIP claims, remittance and invoices; reads the books.",
+            [Permissions.PatientsView, Permissions.ScheduleView, Permissions.BillingView, Permissions.BillingManage, Permissions.FinanceView]),
         (PrivacyOfficer, "Consent directives, the PHIPA access logs and duplicate patient records.",
             [Permissions.PatientsView, Permissions.PatientsMerge, Permissions.ConsentManage, Permissions.AuditView, Permissions.ReportAuditView]),
         (ReportTypist, "Starts and fills diagnostic reports during the exam (ClinicReport).",
