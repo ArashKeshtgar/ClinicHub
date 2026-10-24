@@ -41,6 +41,8 @@ public static class FhirPrescriptionBundle
                 ["dispenseRequest"] = DispenseRequest(p),
                 ["substitution"] = new JsonObject { ["allowedBoolean"] = !p.NoSubstitution },
                 ["note"] = p.Note is { } n ? new JsonArray(new JsonObject { ["text"] = n }) : null,
+                ["priorPrescription"] = p.RenewsPrescriptionId is { } prior
+                    ? new JsonObject { ["identifier"] = Identifier(FhirSystems.Clinic(clinic.Slug, "prescription"), prior.ToString()) } : null,
             };
             entries.Add(Entry($"urn:uuid:prescription-{p.Id}", request));
         }

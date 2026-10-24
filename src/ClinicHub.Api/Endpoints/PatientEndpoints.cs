@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using ClinicHub.Api.Auth;
 using ClinicHub.Api.Catalog;
@@ -196,6 +197,18 @@ public static partial class PatientEndpoints
             await Merge(db, clinic, survivor, merged, user.RequiredUserId(), clock.GetUtcNow().UtcDateTime, AuthEndpoints.Ip(http));
             return Results.Ok(await Detail(db, survivor, Today(clock)));
         }).RequireAuthorization(Permissions.PatientsMerge);
+
+        api.MapPost("/{id:int}/unmerge", async (int id, ClaimsPrincipal user, ClinicHubDbContext db, CatalogDbContext catalog, TimeProvider clock, HttpContext http) =>
+        {
+            var merged = await db.Patients.SingleOrDefaultAsync(p => p.Id == id);
+            if (merged is null)
+                return Results.NotFound();
+            if (merged.MergedIntoPatientId is null)
+                return Results.Problem("This record is not merged into another.", statusCode: StatusCodes.Status409Conflict);
+            var clinic = await catalog.Clinics.AsNoTracking().SingleAsync(c => c.Id == user.RequiredClinicId());
+            var refusal = await Unmerge(db, clinic, merged, user.RequiredUserId(), clock.GetUtcNow().UtcDateTime, AuthEndpoints.Ip(http));
+            return refusal is null ? Results.Ok(await Detail(db, merged, Today(clock))) : Results.Problem(refusal, statusCode: StatusCodes.Status409Conflict);
+        }).RequireAuthorization(Permissions.PatientsMerge);
     }
 
     /// <summary>
@@ -217,6 +230,20 @@ public static partial class PatientEndpoints
                 .Select(x => x.TargetSystem).Distinct().ToListAsync();
             if (await db.Prescriptions.AnyAsync(x => x.PatientId == from && x.SentUtc != null))
                 told.Add(TargetSystems.PharmaFlow);
+            // What moves is written down, so that the merge can be undone (see Unmerge).
+            var moved = new Dictionary<string, List<int>>
+            {
+                [nameof(db.Appointments)] = await db.Appointments.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.Encounters)] = await db.Encounters.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.EligibilityChecks)] = await db.EligibilityChecks.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.Referrals)] = await db.Referrals.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.ServiceRequests)] = await db.ServiceRequests.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.Prescriptions)] = await db.Prescriptions.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.Claims)] = await db.Claims.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.Invoices)] = await db.Invoices.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.ConsentDirectives)] = await db.ConsentDirectives.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+                [nameof(db.Allergies)] = await db.Allergies.Where(x => x.PatientId == from).Select(x => x.Id).ToListAsync(),
+            };
             await db.Appointments.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.Encounters.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.EligibilityChecks.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
@@ -226,14 +253,18 @@ public static partial class PatientEndpoints
             await db.Claims.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.Invoices.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
             await db.ConsentDirectives.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            await db.Allergies.Where(x => x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
 
             // The merged record leaves the live set first, so its health card can move to the survivor
             // (one live record per card is a unique index).
             merged.MergedIntoPatientId = to;
             merged.UpdatedUtc = now;
             await db.SaveChangesAsync();
+            var before = Snapshot(survivor);
             FillBlanks(survivor, merged);
             survivor.UpdatedUtc = now;
+            var after = Snapshot(survivor);
+            var filled = after.Keys.Where(k => before[k] != after[k]).ToList();
 
             // Other open pairs with the merged record become pairs with the survivor, unless that pair is already known.
             var pairs = await db.DuplicateCandidates.Where(c => c.PatientAId == from || c.PatientBId == from).ToListAsync();
@@ -274,19 +305,137 @@ public static partial class PatientEndpoints
                 m.PayloadJson = FhirOrderBundle.Build(clinic, survivor, orders[0].RequesterProvider, orders, m.CreatedUtc, label).ToJsonString();
             }
 
-            foreach (var destination in told.Distinct())
-                db.Outbox.Add(new OutboxMessage
-                {
-                    Destination = destination, Kind = OutboxKinds.PatientMerge, CreatedUtc = now,
-                    PayloadJson = FhirOrderBundle.PatientMerge(clinic, merged.Mrn, survivor.Mrn, now).ToJsonString(),
-                });
+            var messages = told.Distinct().Select(destination => new OutboxMessage
+            {
+                Destination = destination, Kind = OutboxKinds.PatientMerge, CreatedUtc = now,
+                PayloadJson = FhirOrderBundle.PatientMerge(clinic, merged.Mrn, survivor.Mrn, now).ToJsonString(),
+            }).ToList();
+            db.Outbox.AddRange(messages);
 
             var note = $"Merged {merged.Mrn} into {survivor.Mrn}";
             db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = userId, PatientId = to, Action = AccessActions.Edit, Context = note, IpAddress = ip });
             db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = userId, PatientId = from, Action = AccessActions.Edit, Context = note, IpAddress = ip });
             await db.SaveChangesAsync();
+            db.MergeLogs.Add(new PatientMergeLog
+            {
+                SurvivorId = to, MergedId = from, AtUtc = now, ByUserId = userId,
+                MovedJson = JsonSerializer.Serialize(moved),
+                FieldsBeforeJson = JsonSerializer.Serialize(filled.ToDictionary(k => k, k => before[k])),
+                FieldsAfterJson = JsonSerializer.Serialize(filled.ToDictionary(k => k, k => after[k])),
+                OutboxIdsJson = JsonSerializer.Serialize(messages.Select(m => m.Id)),
+            });
+            await db.SaveChangesAsync();
             await tx.CommitAsync();
         });
+    }
+
+    /// <summary>The fields a merge may fill in, by name.</summary>
+    private static readonly string[] FilledFields =
+    [
+        nameof(Patient.MiddleName), nameof(Patient.PreferredName), nameof(Patient.HealthCardNumber), nameof(Patient.HealthCardVersion),
+        nameof(Patient.HealthCardExpiry), nameof(Patient.CoverageProvince), nameof(Patient.OutOfProvinceNumber), nameof(Patient.Phone),
+        nameof(Patient.Email), nameof(Patient.AddressLine1), nameof(Patient.City), nameof(Patient.Province), nameof(Patient.PostalCode),
+        nameof(Patient.FamilyProviderName), nameof(Patient.FamilyProviderOhipNumber), nameof(Patient.IsDeceased), nameof(Patient.DeceasedDate),
+    ];
+
+    /// <summary>Those fields as text (null stays null), to compare and to write down.</summary>
+    private static Dictionary<string, string?> Snapshot(Patient p) =>
+        FilledFields.ToDictionary(f => f, f => typeof(Patient).GetProperty(f)!.GetValue(p) switch
+        {
+            null => null,
+            DateOnly d => d.ToString("O"),
+            var v => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture),
+        });
+
+    private static void Restore(Patient p, string field, string? value)
+    {
+        var prop = typeof(Patient).GetProperty(field)!;
+        var type = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+        prop.SetValue(p, value is null ? null
+            : type == typeof(DateOnly) ? DateOnly.Parse(value)
+            : Convert.ChangeType(value, type, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>
+    /// Takes a merge back: what moved goes back to the record it came from, the fields it filled in are emptied again
+    /// (unless someone has changed them since), and the merged record is live again. Refused when the survivor was
+    /// merged into another record since, when the applications were already told about the merge (they cannot be told
+    /// to forget it), or when the two records share a health card. Returns why it was refused, or null.
+    /// </summary>
+    public static async Task<string?> Unmerge(ClinicHubDbContext db, Clinic clinic, Patient merged, int userId, DateTime now, string? ip)
+    {
+        var log = await db.MergeLogs.OrderByDescending(l => l.Id).FirstOrDefaultAsync(l => l.MergedId == merged.Id && l.UndoneUtc == null);
+        if (log is null || merged.MergedIntoPatientId != log.SurvivorId)
+            return "This merge was made before merges were written down, so it cannot be undone from here.";
+        var survivor = await db.Patients.SingleAsync(p => p.Id == log.SurvivorId);
+        if (survivor.MergedIntoPatientId is not null)
+            return $"{survivor.Mrn} was merged into another record since. Undo that merge first.";
+        var outboxIds = JsonSerializer.Deserialize<List<long>>(log.OutboxIdsJson) ?? [];
+        if (await db.Outbox.AnyAsync(m => outboxIds.Contains(m.Id) && m.SentUtc != null))
+            return "The applications have already been told about this merge and cannot be told to take it back. Correct the records there by hand.";
+
+        string? refusal = null;
+        await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
+            var (to, from) = (merged.Id, survivor.Id);
+            var moved = JsonSerializer.Deserialize<Dictionary<string, List<int>>>(log.MovedJson) ?? [];
+            List<int> Ids(string table) => moved.GetValueOrDefault(table) ?? [];
+
+            // The fields the merge filled in are emptied again, unless the value has been changed since.
+            var beforeFields = JsonSerializer.Deserialize<Dictionary<string, string?>>(log.FieldsBeforeJson) ?? [];
+            var afterFields = JsonSerializer.Deserialize<Dictionary<string, string?>>(log.FieldsAfterJson) ?? [];
+            var current = Snapshot(survivor);
+            foreach (var (field, was) in beforeFields)
+                if (current[field] == afterFields[field])
+                    Restore(survivor, field, was);
+            if (merged.HealthCardNumber is not null && survivor.HealthCardNumber == merged.HealthCardNumber)
+            {
+                refusal = "The two records share a health card. Correct one of them first.";
+                return;
+            }
+            survivor.UpdatedUtc = now;
+            await db.SaveChangesAsync();
+            merged.MergedIntoPatientId = null;
+            merged.UpdatedUtc = now;
+            await db.SaveChangesAsync();
+
+            var a = Ids(nameof(db.Appointments)); await db.Appointments.Where(x => a.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var e = Ids(nameof(db.Encounters)); await db.Encounters.Where(x => e.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var c = Ids(nameof(db.EligibilityChecks)); await db.EligibilityChecks.Where(x => c.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var r = Ids(nameof(db.Referrals)); await db.Referrals.Where(x => r.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var o = Ids(nameof(db.ServiceRequests)); await db.ServiceRequests.Where(x => o.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var rx = Ids(nameof(db.Prescriptions)); await db.Prescriptions.Where(x => rx.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var cl = Ids(nameof(db.Claims)); await db.Claims.Where(x => cl.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var iv = Ids(nameof(db.Invoices)); await db.Invoices.Where(x => iv.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var cd = Ids(nameof(db.ConsentDirectives)); await db.ConsentDirectives.Where(x => cd.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+            var al = Ids(nameof(db.Allergies)); await db.Allergies.Where(x => al.Contains(x.Id) && x.PatientId == from).ExecuteUpdateAsync(s => s.SetProperty(x => x.PatientId, to));
+
+            // The merge's messages were never sent: they are dropped. Orders not delivered yet go out under the record they came from again.
+            db.Outbox.RemoveRange(await db.Outbox.Where(m => outboxIds.Contains(m.Id)).ToListAsync());
+            var waiting = await db.Outbox.Where(m => m.SentUtc == null && m.Kind == OutboxKinds.Order
+                && db.ServiceRequests.Any(s => s.OutboxMessageId == m.Id && s.PatientId == to)).ToListAsync();
+            foreach (var m in waiting)
+            {
+                var orders = await db.ServiceRequests.Include(s => s.RequesterProvider).Where(s => s.OutboxMessageId == m.Id).OrderBy(s => s.Id).ToListAsync();
+                var label = await ConfidentialityLabels.ForAsync(db, to, orders[0].EncounterId);
+                m.PayloadJson = FhirOrderBundle.Build(clinic, merged, orders[0].RequesterProvider, orders, m.CreatedUtc, label).ToJsonString();
+            }
+
+            // The pair is open again for a person to decide.
+            var pair = await db.DuplicateCandidates.SingleOrDefaultAsync(x => x.PatientAId == Math.Min(to, from) && x.PatientBId == Math.Max(to, from));
+            if (pair is not null)
+                (pair.Status, pair.ReviewedByUserId, pair.ReviewedUtc) = (DuplicateStatus.Open, null, null);
+
+            log.UndoneUtc = now;
+            log.UndoneByUserId = userId;
+            var note = $"Undid the merge of {merged.Mrn} into {survivor.Mrn}";
+            db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = userId, PatientId = to, Action = AccessActions.Edit, Context = note, IpAddress = ip });
+            db.PatientAccessLog.Add(new PatientAccessLog { AtUtc = now, UserId = userId, PatientId = from, Action = AccessActions.Edit, Context = note, IpAddress = ip });
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+        });
+        return refusal;
     }
 
     /// <summary>The live record a merged one ended up in (merges can chain: A into B, later B into C).</summary>

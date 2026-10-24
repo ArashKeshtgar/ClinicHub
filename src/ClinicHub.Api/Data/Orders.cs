@@ -163,6 +163,12 @@ public class Prescription
 
     /// <summary>The pharmacy's answer when it could not cancel, e.g. already dispensed.</summary>
     [MaxLength(500)] public string? StatusNote { get; set; }
+
+    /// <summary>The alerts the prescriber went ahead of, with the reasons given, one per line.</summary>
+    [MaxLength(1000)] public string? AlertNote { get; set; }
+
+    /// <summary>The earlier prescription this one renews.</summary>
+    public int? RenewsPrescriptionId { get; set; }
 }
 
 /// <summary>A result or report that came back for an order (FHIR DiagnosticReport). A clinician must acknowledge it.</summary>

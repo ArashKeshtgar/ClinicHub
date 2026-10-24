@@ -79,7 +79,13 @@ patient data leaves the offline copy.
       drugs) at a visit; each goes to the pharmacy (PharmaFlow) as a FHIR MedicationRequest, through the outbox and
       IntegrationHub, and can be cancelled (the pharmacy refuses once it has begun to dispense), see
       [docs/architecture.md](docs/architecture.md#electronic-prescriptions). Seen end to end with PharmaFlow's intake.
-- [ ] Docker image and public demo
+- [x] Allergy list and a check at prescribing: allergies, interactions with what the patient already takes, and duplicate
+      therapy, each answered (a reason for severe and major ones) before a prescription goes out; a demo knowledge base,
+      see [docs/architecture.md](docs/architecture.md#electronic-prescriptions)
+- [x] Renewing a prescription at a later visit, linked to the one it renews, through the same checks
+- [x] Undoing a merge, until the applications have been told about it
+- [x] Running privately on a server with a Docker image, real accounts and certificates (the ControlPanel repository's
+      `deploy/vps`). A public one-click demo is not built, on purpose
 - [x] Clinic operations dashboard: the **Operations** page of [Analytics](https://github.com/ArashKeshtgar/Analytics)
       (orders, turnaround, cancellations), built from IntegrationHub's de-identified events
 

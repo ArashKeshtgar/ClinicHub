@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using ClinicHub.Api.Data;
@@ -135,5 +136,57 @@ public class MergeAndLabelTests(ApiFactory factory) : IClassFixture<ApiFactory>
         await using var db = new TestDatabaseReader(factory).Context();
         var mrn = await db.Patients.Where(p => p.Id == copy).Select(p => p.Mrn).SingleAsync();
         Assert.DoesNotContain(await db.Outbox.Where(m => m.Kind == OutboxKinds.PatientMerge).Select(m => m.PayloadJson).ToListAsync(), p => p.Contains(mrn));
+    }
+
+    [Fact]
+    public async Task A_merge_can_be_undone_until_the_applications_were_told()
+    {
+        var desk = await factory.SignInAsync("frontdesk");
+        var keep = await Register("Wilhelmina", "Oakhaven", "1958-04-17");
+        var copy = (await Json(await desk.PostAsJsonAsync("/api/patients", new
+        {
+            patient = new { firstName = "Wilhelmina", lastName = "Oakhaven", dateOfBirth = "1958-04-17", sex = "F", phone = "(905) 555-0142", preferredLanguage = "en", isDeceased = false },
+            confirmNew = true,
+        })))["id"]!.GetValue<int>();
+        await Json(await desk.PostAsJsonAsync("/api/frontdesk/walk-ins", new { patientId = copy, reason = "Cough" }));
+        var privacy = await factory.SignInAsync("privacy");
+        var merged = await Json(await privacy.PostAsJsonAsync("/api/patients/merge", new { survivorId = keep, mergedId = copy }));
+        Assert.Equal("(905) 555-0142", (string)merged["fields"]!["phone"]!);
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await desk.PostAsync($"/api/patients/{copy}/unmerge", null)).StatusCode);
+        var back = await Json(await privacy.PostAsync($"/api/patients/{copy}/unmerge", null));
+        Assert.Null(back["mergedInto"]);
+
+        await using var db = new TestDatabaseReader(factory).Context();
+        Assert.True(await db.Appointments.AnyAsync(a => a.PatientId == copy && a.Reason == "Cough"));
+        Assert.False(await db.Appointments.AnyAsync(a => a.PatientId == keep && a.Reason == "Cough"));
+        Assert.Null(await db.Patients.Where(p => p.Id == copy).Select(p => p.MergedIntoPatientId).SingleAsync());
+        Assert.Null(await db.Patients.Where(p => p.Id == keep).Select(p => p.Phone).SingleAsync());   // what the merge filled in is emptied again
+        Assert.Equal("(905) 555-0142", await db.Patients.Where(p => p.Id == copy).Select(p => p.Phone).SingleAsync());
+        var mrn = await db.Patients.Where(p => p.Id == copy).Select(p => p.Mrn).SingleAsync();
+        Assert.DoesNotContain(await db.Outbox.Where(m => m.Kind == OutboxKinds.PatientMerge).Select(m => m.PayloadJson).ToListAsync(), p => p.Contains(mrn));
+        Assert.Equal(DuplicateStatus.Open, await db.DuplicateCandidates.Where(c => c.PatientAId == Math.Min(keep, copy) && c.PatientBId == Math.Max(keep, copy)).Select(c => c.Status).SingleAsync());
+
+        // Not merged any more: nothing to undo twice.
+        Assert.Equal(HttpStatusCode.Conflict, (await privacy.PostAsync($"/api/patients/{copy}/unmerge", null)).StatusCode);
+        // And it can be merged again.
+        await Json(await privacy.PostAsJsonAsync("/api/patients/merge", new { survivorId = keep, mergedId = copy }));
+    }
+
+    [Fact]
+    public async Task A_merge_the_applications_were_told_about_is_not_undone()
+    {
+        var keep = await Register("Cornelius", "Abernathy", "1949-12-01");
+        var copy = await Register("Cornelius", "Abernathy", "1949-12-01");
+        await DeliveredOrder(copy);
+        var privacy = await factory.SignInAsync("privacy");
+        await Json(await privacy.PostAsJsonAsync("/api/patients/merge", new { survivorId = keep, mergedId = copy }));
+        await Dispatcher.DispatchAsync();
+
+        var res = await privacy.PostAsync($"/api/patients/{copy}/unmerge", null);
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        Assert.Contains("already been told", await res.Content.ReadAsStringAsync());
+        await using var db = new TestDatabaseReader(factory).Context();
+        Assert.Equal(keep, await db.Patients.Where(p => p.Id == copy).Select(p => p.MergedIntoPatientId).SingleAsync());
     }
 }

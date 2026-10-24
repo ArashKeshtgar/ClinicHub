@@ -292,15 +292,41 @@ together share a number and one outgoing message, the way the tests of an order 
   again with `status: cancelled`, a conditional `PUT MedicationRequest?identifier=…|{id}` and the reason in a note. A
   `200` cancels it; **`409` (or 400, 404, 422) is the pharmacy saying no** (it has begun to dispense): the prescription
   goes back to *At the pharmacy* with the answer as its note, and is not retried.
-- **Not checked here:** allergies, interactions and duplicate therapy. ClinicHub keeps no allergy list; the pharmacy
-  checks when it receives the prescription (PharmaFlow's reception does).
+- **Checked here (24 Oct 2026):** before anything is saved ClinicHub checks the drugs against the patient's **recorded
+  allergies** (*Patients* → the patient → *Allergies*, or the visit's side panel), against **the medicines the patient is
+  already taking** (ClinicHub's own earlier prescriptions: not cancelled, not failed, and not past their days of supply
+  times their fills, 30 days a fill when none is given) and against each other (drugs written together). It raises
+  **allergy** alerts (a class or an ingredient; a penicillin allergy also flags cephalosporins, an ASA allergy the other
+  NSAIDs, both as moderate), **interaction** alerts (a short hand-written list: warfarin with NSAIDs, clarithromycin with
+  atorvastatin, ramipril with spironolactone, and so on) and **duplicate** alerts (two statins, two SSRIs, two
+  anticoagulants…). Each alert is *severe* (an allergy the patient has marked severe; two anticoagulants), *major* or
+  *moderate*. The request is answered `409` with the alerts until each one is answered in `overrides`: a moderate one is
+  acknowledged, a severe or major one needs a written reason of at least 10 characters. What was gone ahead of, and why, is
+  kept on the prescription (`AlertNote`) and the access log says it was prescribed. `POST /api/encounters/{id}/prescriptions/check`
+  returns the alerts without writing. **This is a demo knowledge base** for the demo catalog (`Domain/DrugSafety.cs`),
+  not clinical decision support: a production system would use a licensed drug database. It knows only ClinicHub's own
+  prescriptions, not what the patient takes from elsewhere, and a medicine from a visit withheld from the user (a consent
+  directive) is left out of the check and out of the list, which says so. The pharmacy still checks when it receives
+  the prescription (PharmaFlow's reception does); the allergy list is not sent to it.
+- **The allergy list** (`people.PatientAllergy`, `/api/patients/{id}/allergies`): anyone who may view patients reads it;
+  whoever documents a visit records and ends entries. *No known allergies* is recorded apart from nothing having been
+  asked (only the second leaves a prescription unchecked). An entry is ended with a reason, never deleted. It moves with a
+  merge.
+- **Renewing** (`POST /api/prescriptions/{id}/renew`, the *Renew at this visit* button under *Medicines on record*): a
+  prescription that has reached the pharmacy (*At the pharmacy*) is written again at a later visit of the same patient,
+  with the same drug, directions, quantity, days and refills unless the prescriber changes them, through the same checks
+  (so a new allergy stops it), linked to the one it renews (`RenewsPrescriptionId`; the MedicationRequest carries
+  `priorPrescription` and the note says which). One prescription is renewed once; a draft, cancelled or failed one is not
+  renewed; the visit and the renewed prescription's visit must be open to the user. `GET /api/patients/{id}/medications`
+  lists a patient's medicines with when each runs out.
 - **Seen end to end** (19 October 2026): a prescription written at a visit went through the outbox and IntegrationHub to
   PharmaFlow's `/fhir` intake and showed *At the pharmacy*; a cancel before filling was accepted; the hub log held no
   drug, patient or health card number. The `409` after filling was seen against a stand-in pharmacy and is tested in
   PharmaFlow, not yet run live against PharmaFlow.
-- **Not built, said plainly.** No refill or renewal flow, no
-  dispensed or picked-up status coming back, no printing, no allergy list, no controlled drugs,
-  and a demo catalog.
+- **Not built, said plainly.** Renewal is the prescriber's act at a visit: no request from the patient or the pharmacy
+  for a renewal, no automatic refill, and no dispensed or picked-up status coming back (the *runs out* date is
+  calculated from the prescription, not from what was dispensed). No printing, no controlled drugs, a demo catalog and a
+  demo interaction table, and the allergy list does not go to the pharmacy.
 
 ### IntegrationHub's clients
 
@@ -348,10 +374,17 @@ front desk registers (`patients.edit`), the privacy officer and administrators r
 - **PHIPA:** opening, registering, correcting, reviewing and merging are written to the access log. The log is
   not rewritten by a merge (it records which record was opened); a patient's log includes the records merged into
   theirs.
-- **The other applications:** orders not delivered yet are rebuilt under the kept record. LabFlow and ClinicReport
-  are **not told** about a merge: orders they already received keep the old MRN, and results for them still reach
-  the right person because they come back by order. Sending FHIR `Patient` links to them is not built.
-- **Not built:** undoing a merge, and merging across clinics (each clinic's database is its own index).
+- **The other applications:** orders not delivered yet are rebuilt under the kept record; the ones that were delivered
+  are told with the merge message (above).
+- **Undoing a merge (24 Oct 2026):** *Undo this merge* on the merged record (`POST /api/patients/{id}/unmerge`,
+  `patients.merge`). Each merge writes down what it moved (`people.PatientMergeLog`: the ids of the rows, the survivor's
+  fields before and after, the messages it queued). Undoing puts back exactly those rows, empties the fields the merge
+  filled in unless someone has changed them since, makes the merged record live again, drops the merge's unsent messages,
+  rebuilds waiting orders under it, and reopens the pair for review; both records' access logs say so. It is **refused**
+  when the applications were already told (they cannot be told to take it back: correct them there), when the surviving
+  record was merged into a third since (undo that first), when the two share a health card, and for a merge made before
+  the log existed. Rows the survivor got after the merge stay with the survivor.
+- **Not built:** merging across clinics (each clinic's database is its own index).
 
 ## Consent directives (PHIPA lockbox)
 
@@ -377,8 +410,11 @@ in the access log. The rules are in `Domain/ConsentGuard.cs`.
 - **Merging** moves the directives to the kept record.
 - **Demo:** each demo clinic with a privacy officer starts with one patient whose entire record is withheld (a signed
   visit by someone other than Dr. Patel, when today has one).
-- **Not built:** LabFlow and ClinicReport are not told about directives, so an order sent to them is not marked as
-  withheld there; telling the patient about an override is the privacy officer's job, outside ClinicHub.
+- **To the applications:** a directive that covers an order or prescription travels with it as a confidentiality label
+  (`meta.security`, IntegrationHub's contracts, flow 7) and LabFlow, ClinicReport and PharmaFlow close the item until a user
+  breaks the glass. **Not built:** a directive recorded or withdrawn *after* an order was delivered is not sent on, so
+  that order keeps the label it went with; and telling the patient about an override is the privacy officer's job, outside
+  ClinicHub.
 
 ## Money to the accounting (FinancePowerApp)
 

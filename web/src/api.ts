@@ -302,10 +302,24 @@ export type PrescriptionLine = {
   din: string; directions: string; quantity: number; daysSupply?: number; repeats: number; noSubstitution: boolean; note?: string
 }
 
+/** What is said before a drug goes out: a recorded allergy, an interaction with what the patient takes, or two of a kind. */
+export type DrugAlert = { key: string; kind: 'Allergy' | 'Interaction' | 'Duplicate'; severity: 'Severe' | 'Major' | 'Moderate'; message: string; dins: string[] }
+export type AlertOverride = { key: string; reason?: string }
+export type Medication = {
+  id: number; din: string; display: string; directions: string; quantity: number; unit: string; daysSupply?: number; repeats: number; status: PrescriptionStatus
+  createdUtc: string; prescriber: string; runsOutUtc: string; current: boolean; canRenew: boolean; renewedBy?: number
+}
+
 export const prescriptions = {
   catalog: () => request<Drug[]>('GET', '/api/prescriptions/catalog'),
   forEncounter: (encounterId: number) => request<Prescription[]>('GET', `/api/encounters/${encounterId}/prescriptions`),
-  write: (encounterId: number, items: PrescriptionLine[]) => request<Prescription[]>('POST', `/api/encounters/${encounterId}/prescriptions`, { items }),
+  write: (encounterId: number, items: PrescriptionLine[], overrides?: AlertOverride[]) =>
+    request<Prescription[]>('POST', `/api/encounters/${encounterId}/prescriptions`, { items, overrides }),
+  check: (encounterId: number, items: PrescriptionLine[]) =>
+    request<{ alerts: DrugAlert[]; someWithheld: boolean; allergiesRecorded: boolean }>('POST', `/api/encounters/${encounterId}/prescriptions/check`, { items }),
+  medications: (patientId: number) => request<{ items: Medication[]; someWithheld: boolean }>('GET', `/api/patients/${patientId}/medications`),
+  renew: (id: number, encounterId: number, overrides?: AlertOverride[]) =>
+    request<Prescription[]>('POST', `/api/prescriptions/${id}/renew`, { encounterId, overrides }),
   resend: (id: number) => request<void>('POST', `/api/prescriptions/${id}/resend`),
   cancel: (id: number, reason: string) => request<Prescription[]>('POST', `/api/prescriptions/${id}/cancel`, { reason }),
 }
@@ -352,6 +366,7 @@ export const mpi = {
   scan: () => request<{ found: number; open: number }>('POST', '/api/patients/duplicates/scan'),
   notDuplicate: (id: number) => request<void>('POST', `/api/patients/duplicates/${id}/not-duplicate`),
   merge: (survivorId: number, mergedId: number) => request<PatientDetail>('POST', '/api/patients/merge', { survivorId, mergedId }),
+  unmerge: (id: number) => request<PatientDetail>('POST', `/api/patients/${id}/unmerge`),
 }
 
 // --- PHIPA consent directives ---
@@ -381,3 +396,17 @@ export const withheld = (e: unknown): Withheld | null =>
   e instanceof ApiError && e.status === 403 && e.data.consentWithheld ? e.data as unknown as Withheld : null
 
 export const CONSENT_SCOPES: Record<ConsentScope, string> = { EntireRecord: 'Entire record', Encounter: 'One visit', Provider: 'Kept from one provider' }
+
+// --- allergies ---
+
+export type Allergy = { id: number; allergenKey?: string; substance: string; reaction?: string; severity: 'Mild' | 'Moderate' | 'Severe'; createdUtc: string; recordedBy: string }
+export type AllergyList = { recorded: boolean; noKnownAllergies: boolean; items: Allergy[] }
+
+export const allergies = {
+  allergens: () => request<{ key: string; label: string }[]>('GET', '/api/allergens'),
+  get: (patientId: number) => request<AllergyList>('GET', `/api/patients/${patientId}/allergies`),
+  add: (patientId: number, a: { allergenKey?: string; substance?: string; reaction?: string; severity: string }) =>
+    request<AllergyList>('POST', `/api/patients/${patientId}/allergies`, a),
+  none: (patientId: number) => request<AllergyList>('POST', `/api/patients/${patientId}/allergies/none`),
+  end: (id: number, reason: string) => request<AllergyList>('POST', `/api/allergies/${id}/end`, { reason }),
+}

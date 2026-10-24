@@ -22,6 +22,8 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
 
     public DbSet<Patient> Patients => Set<Patient>();
     public DbSet<PatientDuplicateCandidate> DuplicateCandidates => Set<PatientDuplicateCandidate>();
+    public DbSet<PatientMergeLog> MergeLogs => Set<PatientMergeLog>();
+    public DbSet<PatientAllergy> Allergies => Set<PatientAllergy>();
     public DbSet<ConsentDirective> ConsentDirectives => Set<ConsentDirective>();
     public DbSet<ConsentOverride> ConsentOverrides => Set<ConsentOverride>();
 
@@ -160,6 +162,23 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
             e.HasIndex(x => new { x.PatientAId, x.PatientBId }).IsUnique();
             e.HasOne<User>().WithMany().HasForeignKey(x => x.ReviewedByUserId);
         });
+        b.Entity<PatientMergeLog>(e =>
+        {
+            e.ToTable("PatientMergeLog", "people");
+            e.HasOne(x => x.Survivor).WithMany().HasForeignKey(x => x.SurvivorId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.Merged).WithMany().HasForeignKey(x => x.MergedId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.ByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.UndoneByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.MergedId);
+        });
+        b.Entity<PatientAllergy>(e =>
+        {
+            e.ToTable("PatientAllergy", "people", t => t.HasCheckConstraint("CK_PatientAllergy_Severity", "Severity IN ('Mild','Moderate','Severe')"));
+            e.HasOne(x => x.Patient).WithMany().HasForeignKey(x => x.PatientId);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.RecordedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<User>().WithMany().HasForeignKey(x => x.EndedByUserId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => x.PatientId);
+        });
         b.Entity<ConsentDirective>(e =>
         {
             e.ToTable("ConsentDirective", "people");
@@ -293,6 +312,7 @@ public class ClinicHubDbContext(DbContextOptions<ClinicHubDbContext> options) : 
                 t.HasCheckConstraint("CK_Prescription_DaysSupply", "DaysSupply IS NULL OR DaysSupply BETWEEN 1 AND 365");
             });
             e.HasOne(x => x.PrescriberProvider).WithMany().HasForeignKey(x => x.PrescriberProviderId);
+            e.HasOne<Prescription>().WithMany().HasForeignKey(x => x.RenewsPrescriptionId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => new { x.PatientId, x.CreatedUtc });
             e.HasIndex(x => x.EncounterId);
             e.HasOne<OutboxMessage>().WithMany().HasForeignKey(x => x.OutboxMessageId);

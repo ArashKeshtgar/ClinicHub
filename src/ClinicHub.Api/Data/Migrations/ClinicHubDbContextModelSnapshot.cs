@@ -1294,6 +1294,68 @@ namespace ClinicHub.Api.Data.Migrations
                     b.ToTable("PatientAccessLog", "sec");
                 });
 
+            modelBuilder.Entity("ClinicHub.Api.Data.PatientAllergy", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AllergenKey")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("EndedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("EndedUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<bool>("NoKnown")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("PatientId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Reaction")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("RecordedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("Substance")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndedByUserId");
+
+                    b.HasIndex("PatientId");
+
+                    b.HasIndex("RecordedByUserId");
+
+                    b.ToTable("PatientAllergy", "people", t =>
+                        {
+                            t.HasCheckConstraint("CK_PatientAllergy_Severity", "Severity IN ('Mild','Moderate','Severe')");
+                        });
+                });
+
             modelBuilder.Entity("ClinicHub.Api.Data.PatientDuplicateCandidate", b =>
                 {
                     b.Property<int>("Id")
@@ -1347,6 +1409,61 @@ namespace ClinicHub.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ClinicHub.Api.Data.PatientMergeLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.Property<int>("ByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FieldsAfterJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FieldsBeforeJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("MergedId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("MovedJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("OutboxIdsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("SurvivorId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("UndoneByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UndoneUtc")
+                        .HasColumnType("datetime2(3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ByUserId");
+
+                    b.HasIndex("MergedId");
+
+                    b.HasIndex("SurvivorId");
+
+                    b.HasIndex("UndoneByUserId");
+
+                    b.ToTable("PatientMergeLog", "people");
+                });
+
             modelBuilder.Entity("ClinicHub.Api.Data.Payment", b =>
                 {
                     b.Property<int>("Id")
@@ -1396,6 +1513,10 @@ namespace ClinicHub.Api.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AlertNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("CancelReason")
                         .HasMaxLength(200)
@@ -1459,6 +1580,9 @@ namespace ClinicHub.Api.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<int?>("RenewsPrescriptionId")
+                        .HasColumnType("int");
+
                     b.Property<int>("Repeats")
                         .HasColumnType("int");
 
@@ -1481,6 +1605,8 @@ namespace ClinicHub.Api.Data.Migrations
                     b.HasIndex("OutboxMessageId");
 
                     b.HasIndex("PrescriberProviderId");
+
+                    b.HasIndex("RenewsPrescriptionId");
 
                     b.HasIndex("PatientId", "CreatedUtc");
 
@@ -2447,6 +2573,28 @@ namespace ClinicHub.Api.Data.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("ClinicHub.Api.Data.PatientAllergy", b =>
+                {
+                    b.HasOne("ClinicHub.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("EndedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("ClinicHub.Api.Data.Patient", "Patient")
+                        .WithMany()
+                        .HasForeignKey("PatientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("RecordedByUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Patient");
+                });
+
             modelBuilder.Entity("ClinicHub.Api.Data.PatientDuplicateCandidate", b =>
                 {
                     b.HasOne("ClinicHub.Api.Data.Patient", "PatientA")
@@ -2468,6 +2616,36 @@ namespace ClinicHub.Api.Data.Migrations
                     b.Navigation("PatientA");
 
                     b.Navigation("PatientB");
+                });
+
+            modelBuilder.Entity("ClinicHub.Api.Data.PatientMergeLog", b =>
+                {
+                    b.HasOne("ClinicHub.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("ByUserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.Patient", "Merged")
+                        .WithMany()
+                        .HasForeignKey("MergedId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.Patient", "Survivor")
+                        .WithMany()
+                        .HasForeignKey("SurvivorId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.User", null)
+                        .WithMany()
+                        .HasForeignKey("UndoneByUserId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.Navigation("Merged");
+
+                    b.Navigation("Survivor");
                 });
 
             modelBuilder.Entity("ClinicHub.Api.Data.Payment", b =>
@@ -2510,6 +2688,11 @@ namespace ClinicHub.Api.Data.Migrations
                         .HasForeignKey("PrescriberProviderId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("ClinicHub.Api.Data.Prescription", null)
+                        .WithMany()
+                        .HasForeignKey("RenewsPrescriptionId")
+                        .OnDelete(DeleteBehavior.NoAction);
 
                     b.Navigation("Encounter");
 

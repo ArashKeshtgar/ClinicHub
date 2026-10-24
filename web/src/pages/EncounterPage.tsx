@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { ApiError, can, consent, encounters, firstError, localDateTime, localTime, money, orders, prescriptions, withheld, type Withheld, type CatalogItem, type Drug, type Prescription, type PrescriptionLine, type Codes, type Coding, type Encounter, type Order, type Soap, type Vitals, type VitalsInput } from '../api'
+import { AllergiesPanel } from './Allergies'
+import { ApiError, can, consent, encounters, firstError, localDateTime, localTime, money, orders, prescriptions, withheld, type AlertOverride, type DrugAlert, type Medication, type Withheld, type CatalogItem, type Drug, type Prescription, type PrescriptionLine, type Codes, type Coding, type Encounter, type Order, type Soap, type Vitals, type VitalsInput } from '../api'
 import { useSession } from '../App'
 
 const PROGRAM: Record<string, string> = { HCP: 'OHIP', RMB: 'Reciprocal (other province)', WCB: 'WSIB', Uninsured: 'Uninsured · patient pays' }
@@ -112,7 +113,8 @@ export default function EncounterPage() {
 
           <OrdersCard encounterId={enc.id} canOrder={can(me, 'orders.manage') && !!me.providerId && enc.status !== 'Voided'} />
 
-          <PrescriptionsCard encounterId={enc.id} canPrescribe={can(me, 'prescriptions.write') && !!me.providerId && enc.status !== 'Voided'} />
+          <AllergiesPanel patientId={enc.patient.id} compact />
+          <PrescriptionsCard encounterId={enc.id} patientId={enc.patient.id} canPrescribe={can(me, 'prescriptions.write') && !!me.providerId && enc.status !== 'Voided'} />
 
           {open && (
             <section className="card">
@@ -565,11 +567,12 @@ const blankRx = (): RxForm => ({ din: '', directions: '', quantity: '', daysSupp
 
 /**
  * Electronic prescriptions from this visit, to the pharmacy (PharmaFlow) as FHIR MedicationRequests. Writing one signs
- * for it: the prescriber is the signed-in clinician. The pharmacy checks allergies and interactions when it receives
- * it; ClinicHub keeps no allergy list yet. A prescription already at the pharmacy can be cancelled, and the pharmacy
- * refuses once it has begun to dispense.
+ * for it: the prescriber is the signed-in clinician. Before it goes out ClinicHub checks the patient's recorded
+ * allergies, what the patient already takes and duplicates; an alert is answered (a reason for severe and major ones)
+ * or the drug is not sent. A prescription already at the pharmacy can be cancelled, and the pharmacy refuses once it has
+ * begun to dispense. An earlier one at the pharmacy can be renewed from the patient's medicines.
  */
-function PrescriptionsCard({ encounterId, canPrescribe }: { encounterId: number; canPrescribe: boolean }) {
+function PrescriptionsCard({ encounterId, patientId, canPrescribe }: { encounterId: number; patientId: number; canPrescribe: boolean }) {
   const [list, setList] = useState<Prescription[] | null>(null)
   const [catalog, setCatalog] = useState<Drug[]>([])
   const [writing, setWriting] = useState(false)
@@ -577,8 +580,13 @@ function PrescriptionsCard({ encounterId, canPrescribe }: { encounterId: number;
   const [error, setError] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState<{ id: number; reason: string } | null>(null)
   const [cancelError, setCancelError] = useState<string | null>(null)
+  const [alerts, setAlerts] = useState<{ items: DrugAlert[]; reasons: Record<string, string>; renewing?: number } | null>(null)
+  const [meds, setMeds] = useState<{ items: Medication[]; someWithheld: boolean } | null>(null)
 
-  const load = useCallback(() => prescriptions.forEncounter(encounterId).then(setList).catch(() => setList([])), [encounterId])
+  const load = useCallback(() => {
+    prescriptions.forEncounter(encounterId).then(setList).catch(() => setList([]))
+    prescriptions.medications(patientId).then(setMeds).catch(() => setMeds(null))
+  }, [encounterId, patientId])
   useEffect(() => { load(); prescriptions.catalog().then(setCatalog).catch(() => setCatalog([])) }, [load])
   // While something is on its way, look again shortly.
   useEffect(() => {
@@ -600,10 +608,32 @@ function PrescriptionsCard({ encounterId, canPrescribe }: { encounterId: number;
       repeats: Number(r.repeats) || 0, noSubstitution: r.noSubstitution, note: r.note.trim() || undefined,
     }))
     try {
-      setList(await prescriptions.write(encounterId, items))
-      setRows([blankRx()]); setWriting(false)
+      setList(await prescriptions.write(encounterId, items, overrides()))
+      setRows([blankRx()]); setWriting(false); setAlerts(null); load()
     } catch (e) {
-      setError(firstError(e, 'Not prescribed.'))
+      if (!showAlerts(e)) setError(firstError(e, 'Not prescribed.'))
+    }
+  }
+
+  /** What the prescriber answered to each alert so far. */
+  const overrides = (): AlertOverride[] | undefined =>
+    alerts ? alerts.items.map(a => ({ key: a.key, reason: alerts.reasons[a.key]?.trim() || undefined })) : undefined
+  /** The server stopped it with alerts: show them, keeping the reasons already typed. */
+  const showAlerts = (e: unknown, renewing?: number) => {
+    if (!(e instanceof ApiError) || !Array.isArray(e.data.alerts)) return false
+    setAlerts({ items: e.data.alerts as DrugAlert[], reasons: alerts?.reasons ?? {}, renewing })
+    setError(null)
+    return true
+  }
+  const answered = !alerts || alerts.items.every(a => a.severity === 'Moderate' || (alerts.reasons[a.key]?.trim().length ?? 0) >= 10)
+
+  const renew = async (m: Medication) => {
+    setError(null)
+    try {
+      setList(await prescriptions.renew(m.id, encounterId, alerts?.renewing === m.id ? overrides() : undefined))
+      setAlerts(null); load()
+    } catch (e) {
+      if (!showAlerts(e, m.id)) setError(firstError(e, 'Not renewed.'))
     }
   }
 
@@ -705,16 +735,61 @@ function PrescriptionsCard({ encounterId, canPrescribe }: { encounterId: number;
               </fieldset>
             ))}
             {rows.length < 10 && <div><button className="small" onClick={() => setRows([...rows, blankRx()])}>Add another drug</button></div>}
-            <p className="muted small" style={{ margin: 0 }}>You sign for it by sending it. The pharmacy checks allergies and interactions; ClinicHub does not keep an allergy list yet. Controlled drugs (narcotics, benzodiazepines, stimulants) are not prescribed here.</p>
+            <p className="muted small" style={{ margin: 0 }}>You sign for it by sending it. It is checked against the patient's recorded allergies and what they already take; the pharmacy checks again. Controlled drugs (narcotics, benzodiazepines, stimulants) are not prescribed here.</p>
             {error && <p className="error">{error}</p>}
             <div className="dialog-actions">
-              <button onClick={() => { setWriting(false); setRows([blankRx()]); setError(null) }}>Cancel</button>
-              <button className="primary" disabled={!ready} onClick={send}>Send {rows.length} prescription{rows.length === 1 ? '' : 's'}</button>
+              <button onClick={() => { setWriting(false); setRows([blankRx()]); setError(null); setAlerts(null) }}>Cancel</button>
+              <button className="primary" disabled={!ready || !answered} onClick={send}>{alerts ? 'Send anyway: ' : 'Send '}{rows.length} prescription{rows.length === 1 ? '' : 's'}</button>
             </div>
           </>
         )}
+        {alerts && <AlertBox alerts={alerts} onReason={(key, text) => setAlerts({ ...alerts, reasons: { ...alerts.reasons, [key]: text } })}
+          onCancel={() => setAlerts(null)} onProceed={alerts.renewing ? () => renew(meds!.items.find(m => m.id === alerts.renewing)!) : undefined} proceedable={answered} />}
+        {meds && meds.items.length > 0 && (
+          <div style={{ display: 'grid', gap: '.3rem' }}>
+            <h3 style={{ margin: '.4rem 0 0' }}>Medicines on record</h3>
+            <ul className="code-list">
+              {meds.items.map(m => (
+                <li key={m.id} style={{ flexWrap: 'wrap' }}>
+                  <span className="desc">{m.display}
+                    <span className="muted small"> · {m.directions} · {m.current ? `runs out ${localDateTime(m.runsOutUtc).split(',')[0]}` : 'finished'} · {m.prescriber}</span>
+                  </span>
+                  {m.renewedBy && <span className="badge none">Renewed</span>}
+                  {canPrescribe && m.canRenew && <button className="quiet small" onClick={() => renew(m)}>Renew at this visit</button>}
+                </li>
+              ))}
+            </ul>
+            {meds.someWithheld && <p className="muted small" style={{ margin: 0 }}>Medicines from visits withheld at the patient's request are not listed or checked.</p>}
+          </div>
+        )}
       </div>
     </section>
+  )
+}
+
+/** The alerts the server raised: what each says, and a reason box where one is needed. */
+function AlertBox({ alerts, onReason, onCancel, onProceed, proceedable }: {
+  alerts: { items: DrugAlert[]; reasons: Record<string, string> }
+  onReason: (key: string, text: string) => void; onCancel: () => void; onProceed?: () => void; proceedable: boolean
+}) {
+  return (
+    <div className="result warn" style={{ display: 'grid', gap: '.5rem' }}>
+      <strong>Check before this is sent</strong>
+      {alerts.items.map(a => (
+        <div key={a.key} style={{ display: 'grid', gap: '.25rem' }}>
+          <div><span className={`badge ${a.severity === 'Moderate' ? 'none' : 'danger'}`}>{a.severity} {a.kind.toLowerCase()}</span> {a.message}</div>
+          {a.severity !== 'Moderate' && (
+            <label className="small">Why go ahead? (at least 10 characters, kept with the prescription)
+              <input value={alerts.reasons[a.key] ?? ''} maxLength={300} onChange={e => onReason(a.key, e.target.value)} />
+            </label>
+          )}
+        </div>
+      ))}
+      <div className="dialog-actions">
+        <button onClick={onCancel}>Change the prescription</button>
+        {onProceed && <button className="danger" disabled={!proceedable} onClick={onProceed}>Renew anyway</button>}
+      </div>
+    </div>
   )
 }
 

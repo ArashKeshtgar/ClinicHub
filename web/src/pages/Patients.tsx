@@ -1,3 +1,4 @@
+import { AllergiesPanel } from './Allergies'
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import {
@@ -105,6 +106,12 @@ function PatientEditor({ patient, onClose, onOpen }: { patient: PatientDetail | 
   const [matches, setMatches] = useState<PossibleDuplicate[] | null>(null)
   const [cardHolder, setCardHolder] = useState<PatientBrief | null>(null)
   const editable = can(me, 'patients.edit') && !current?.mergedInto
+  const undoMerge = async () => {
+    if (!current || !window.confirm(`Undo the merge? ${current.mrn} becomes a record of its own again, with what moved to the other record.`)) return
+    setMsg(null)
+    try { const r = await mpi.unmerge(current.id); setCurrent(r); setForm(r.fields); setMsg({ ok: true, text: `${r.mrn} is a record of its own again.` }) }
+    catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'Could not undo the merge.' }) }
+  }
 
   const save = async (confirmNew = false) => {
     setErrors({}); setMsg(null); setCardHolder(null)
@@ -139,7 +146,8 @@ function PatientEditor({ patient, onClose, onOpen }: { patient: PatientDetail | 
       )}
       {current?.mergedInto && (
         <p className="result warn">This record was merged into {current.mergedInto.name} (<span className="mono">{current.mergedInto.mrn}</span>).{' '}
-          <button className="small" onClick={() => onOpen(current.mergedInto!.id)}>Open that record</button></p>
+          <button className="small" onClick={() => onOpen(current.mergedInto!.id)}>Open that record</button>
+          {can(me, 'patients.merge') && <>{' '}<button className="small" onClick={undoMerge}>Undo this merge</button></>}</p>
       )}
       {current && current.mergedFrom.length > 0 && (
         <div className="muted small">Also known as {current.mergedFrom.map(m => m.mrn).join(', ')} (merged into this record).</div>
@@ -176,6 +184,7 @@ function PatientEditor({ patient, onClose, onOpen }: { patient: PatientDetail | 
 
       {msg && <p className={`result ${msg.ok ? 'ok' : 'warn'}`}>{msg.text}{cardHolder && <> <button className="small" onClick={() => onOpen(cardHolder.id)}>Open {cardHolder.name}</button></>}</p>}
       {editable && !matches && <div className="dialog-actions"><button className="primary" onClick={() => save()}>{current ? 'Save corrections' : 'Register'}</button></div>}
+      {current && !current.mergedInto && <AllergiesPanel patientId={current.id} />}
       {current && !current.mergedInto && <ConsentPanel patientId={current.id} />}
     </aside>
   )
@@ -373,7 +382,7 @@ function PairReview({ id, onClose, onDecided }: { id: number; onClose: () => voi
             ? <p className="result warn" style={{ margin: 0 }}>Two different health cards: if one is mistyped, correct it on the patient first. Otherwise these are two people.</p>
             : <p className="muted small" style={{ margin: 0 }}>
                 Merging moves {merged.mrn}'s appointments, visits, orders, claims and invoices to {survivor.mrn}, and fills {survivor.mrn}'s empty fields from it.
-                {' '}{merged.mrn} stays as a pointer: searching for it opens {survivor.mrn}. A merge is not undone from this screen.
+                {' '}{merged.mrn} stays as a pointer: searching for it opens {survivor.mrn}. A merge can be undone from the merged record until the applications have been told about it.
               </p>}
           {error && <p className="error">{error}</p>}
           <div className="dialog-actions">

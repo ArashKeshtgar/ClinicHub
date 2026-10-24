@@ -79,6 +79,67 @@ public class PatientDuplicateCandidate
     public DateTime? ReviewedUtc { get; set; }
 }
 
+/// <summary>
+/// What one merge moved, so that it can be undone: the ids of the rows that went to the surviving record, the
+/// survivor's fields before and after the empty ones were filled, and the messages the applications were told with.
+/// </summary>
+public class PatientMergeLog
+{
+    public int Id { get; set; }
+    public int SurvivorId { get; set; }
+    public Patient Survivor { get; set; } = null!;
+    public int MergedId { get; set; }
+    public Patient Merged { get; set; } = null!;
+    public DateTime AtUtc { get; set; }
+    public int ByUserId { get; set; }
+
+    /// <summary>Table name to the ids that moved from the merged record to the survivor (JSON).</summary>
+    public string MovedJson { get; set; } = "{}";
+
+    /// <summary>The survivor's fields before the merge and after it, only those that were filled in (JSON).</summary>
+    public string FieldsBeforeJson { get; set; } = "{}";
+    public string FieldsAfterJson { get; set; } = "{}";
+
+    /// <summary>The messages to the applications that came with the merge (JSON list of outbox ids).</summary>
+    public string OutboxIdsJson { get; set; } = "[]";
+    public DateTime? UndoneUtc { get; set; }
+    public int? UndoneByUserId { get; set; }
+}
+
+public static class AllergySeverities
+{
+    public const string Mild = "Mild";
+    public const string Moderate = "Moderate";
+    public const string Severe = "Severe";
+}
+
+/// <summary>
+/// A recorded allergy or intolerance, checked when a drug is prescribed. A row with <see cref="NoKnown"/> set says that
+/// the patient was asked and has none, which is different from nothing having been recorded.
+/// </summary>
+public class PatientAllergy
+{
+    public int Id { get; set; }
+    public int PatientId { get; set; }
+    public Patient Patient { get; set; } = null!;
+
+    /// <summary>A class or ingredient from <c>DrugSafety.Allergens</c>; null for free text.</summary>
+    [MaxLength(40)] public string? AllergenKey { get; set; }
+
+    /// <summary>What the patient is allergic to, as written ("Penicillins (amoxicillin…)", "Latex").</summary>
+    [MaxLength(100)] public string Substance { get; set; } = "";
+    [MaxLength(200)] public string? Reaction { get; set; }
+    [MaxLength(10)] public string Severity { get; set; } = AllergySeverities.Moderate;
+    public bool NoKnown { get; set; }
+    public int RecordedByUserId { get; set; }
+    public DateTime CreatedUtc { get; set; }
+
+    /// <summary>Set when it was entered in error or no longer applies; it stays for history.</summary>
+    public DateTime? EndedUtc { get; set; }
+    public int? EndedByUserId { get; set; }
+    [MaxLength(200)] public string? EndReason { get; set; }
+}
+
 public static class ConsentScopes
 {
     /// <summary>The whole record is withheld from everyone except the patient's own care team for the visit.</summary>
