@@ -10,6 +10,8 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+// Secrets as files, one per setting (e.g. ConnectionStrings__Finance), the way Docker mounts them; none outside a container.
+builder.Configuration.AddKeyPerFile("/run/secrets", optional: true);
 
 // The catalog (clinics, accounts, roles) and one database per clinic, chosen per request from the signed-in clinic.
 builder.Services.AddClinicDatabases(builder.Configuration);
@@ -56,6 +58,9 @@ using (var scope = app.Services.CreateScope())
     var provisioning = services.GetRequiredService<ClinicProvisioning>();
     await provisioning.UpgradeAllAsync();
     await SsoSetup.RegisterClientsAsync(services);
+    // A one-off command (seed-demo, admin): run it and exit instead of serving.
+    if (await AdminCommands.RunAsync(args, services))
+        return;
     if (services.GetRequiredService<IOptions<DemoOptions>>().Value.Enabled)
         await DemoSeeder.SeedAsync(services.GetRequiredService<CatalogDbContext>(), provisioning, services.GetRequiredService<ClinicDatabases>(),
             services.GetRequiredService<IPasswordHasher<Account>>(), services.GetRequiredService<TimeProvider>().GetUtcNow().UtcDateTime);
